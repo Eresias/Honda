@@ -122,7 +122,7 @@ function digits(){if(digitTex)return digitTex;const c=document.createElement('ca
 // num : {box:Vector4,color:Color} pour peindre le numéro du tome
 function mat(params,opt={}){
   const m=new THREE.MeshStandardMaterial(params);
-  if(opt.ghost){m.transparent=true;m.opacity=opt.opacity??.14;m.depthWrite=false}
+  if(opt.ghost){m.transparent=true;m.opacity=opt.opacity??.06;m.depthWrite=false}
   const led=opt.led!==false,num=opt.num;
   if(!led&&!num)return m;
   m.onBeforeCompile=sh=>{
@@ -336,7 +336,7 @@ function build(keep){
       const map=spineTexture(s,pal,tpl,0),dcol=lin(tpl.digit);rec.dcol=dcol;rec.map=map;
       const mk=(from,to,ghost)=>{const n=to-from;if(n<=0)return null;
         const nums=[];for(let i=from;i<to;i++)nums.push(i+1);
-        const spine=mat({map,roughness:T.rough},{num:{box,color:dcol},ghost,opacity:.2});rec.spines.push(spine);
+        const spine=mat({map,roughness:T.rough},{num:{box,color:dcol},ghost,opacity:.15});rec.spines.push(spine);
         const im=new THREE.InstancedMesh(instGeo(mergedGeo[tab],nums),[ghost?rec.bodyG:rec.body,ghost?PAGES_G[tab]:PAGES[tab],spine],n);
         for(let i=0;i<n;i++)im.setMatrixAt(i,placeMatrix(P[from+i],false));
         im.instanceMatrix.needsUpdate=true;
