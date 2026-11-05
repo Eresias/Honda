@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hondana</title>
+<meta name="description" content="Ta bibliothèque de mangas et d'animes en 3D, tome par tome.">
+<meta name="theme-color" content="#0b0c10">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><h1>Hondana</h1><span>本棚 · ta bibliothèque</span></div>
+    <div class="tabs" role="tablist">
+      <button id="tab-manga" role="tab" aria-selected="true" data-tab="manga">Mangas</button>
+      <button id="tab-anime" role="tab" aria-selected="false" data-tab="anime">Animes</button>
+    </div>
+    <div class="stats"><span id="stats"></span> <span id="al-progress" hidden></span></div>
+    <div class="actions">
+      <select class="sort" id="sort" aria-label="Trier l'étagère">
+        <option value="titre">Tri : titre A→Z</option>
+        <option value="note">Tri : meilleure note</option>
+        <option value="statut">Tri : statut</option>
+        <option value="progression">Tri : nombre de tomes</option>
+      </select>
+      <button class="btn" id="btn-add">Ajouter</button>
+      <button class="btn primary" id="btn-import">Importer MAL</button>
+    </div>
+  </header>
+  <div class="banner" id="banner" hidden>
+    <span>Étagère d'exemple.</span>
+    <button id="banner-import">Importer ta liste MyAnimeList</button><span class="long">pour la remplacer par la tienne.</span>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="c" aria-label="Étagère 3D de ta collection"></canvas>
+    <div class="vignette"></div>
+    <div class="hint" id="hint">Glisse pour parcourir · touche un tome pour le sortir</div>
+    <div class="controls">
+      <button id="b-left" aria-label="Défiler à gauche">◀</button>
+      <button id="b-right" aria-label="Défiler à droite">▶</button>
+      <button id="b-out" aria-label="Dézoomer">−</button>
+      <button id="b-in" aria-label="Zoomer">+</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <a class="credit" href="https://anilist.co" target="_blank" rel="noopener">Couvertures : AniList</a>
+    <aside class="panel" id="panel" hidden aria-live="polite"></aside>
+    <div class="lost" id="lost" hidden><p>L'affichage 3D s'est interrompu.</p><button class="btn primary" onclick="location.reload()">Recharger l'étagère</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-import" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="imp-t">
+    <h2 id="imp-t">Importer depuis MyAnimeList</h2>
+    <ol>
+      <li>Connecte-toi sur MyAnimeList et ouvre la <a href="https://myanimelist.net/panel.php?go=export" target="_blank" rel="noopener">page d'export</a>.</li>
+      <li>Choisis « Manga List » ou « Anime List », puis clique sur Export.</li>
+      <li>Dépose ici le fichier téléchargé (.xml.gz ou .xml).</li>
+    </ol>
+    <label class="drop" id="drop" for="file">Clique ou dépose ton fichier ici
+      <input type="file" id="file" accept=".xml,.gz,application/xml,application/gzip" hidden>
+    </label>
+    <p class="err" id="imp-err" hidden></p>
+    <p class="note">Les couvertures viennent d'<a href="https://anilist.co" target="_blank" rel="noopener">AniList</a>. Les séries d'exemple sont retirées à l'import. Les tomes sont repris de ton compteur de volumes lus ; si tu ne suis que les chapitres, ils sont estimés.</p>
+    <div class="row"><button class="btn" id="imp-close">Fermer</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-add" hidden>
+  <form class="modal" id="add-form" role="dialog" aria-modal="true" aria-labelledby="add-t">
+    <h2 id="add-t">Ajouter une série</h2>
+    <label class="f">Titre<input id="a-title" required maxlength="80" placeholder="Ex. Blue Lock" autocomplete="off"></label>
+    <div class="al-results" id="a-results" hidden></div>
+    <p class="note" id="a-picked" hidden></p>
+    <div class="grid2">
+      <label class="f"><span id="a-done-l">Tomes lus</span><input id="a-done" type="number" min="0" max="3000" value="1"></label>
+      <label class="f"><span id="a-total-l">Tomes parus</span><input id="a-total" type="number" min="0" max="3000" value="0"></label>
+      <label class="f">Statut<select id="a-status"></select></label>
+      <label class="f">Note /10<select id="a-score"></select></label>
+    </div>
+    <p class="note">Mets 0 en « parus » pour une série encore en cours de parution.</p>
+    <div class="row"><button class="btn primary" type="submit">Ranger sur l'étagère</button><button class="btn" type="button" id="add-close">Annuler</button></div>
+  </form>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="vendor/three.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
