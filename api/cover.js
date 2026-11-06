@@ -1,6 +1,6 @@
-// Relais d'images : récupère une couverture AniList et la renvoie avec les en-têtes
-// qui permettent de l'utiliser comme texture 3D. Seuls les domaines d'AniList sont acceptés.
-const ALLOWED = new Set(['s4.anilist.co', 'img.anili.st']);
+// Relais d'images : récupère une couverture AniList ou MangaDex et la renvoie avec les en-têtes
+// qui permettent de l'utiliser comme texture 3D. Seuls ces deux sites sont acceptés.
+const ALLOWED = new Set(['s4.anilist.co', 'img.anili.st', 'uploads.mangadex.org']);
 const MAX_BYTES = 6 * 1024 * 1024;
 
 export default async function handler(req, res) {

@@ -21,12 +21,13 @@
     </div>
     <div class="stats"><span id="stats"></span> <span id="al-progress" hidden></span></div>
     <div class="actions">
-      <select class="sort" id="sort" aria-label="Trier l'étagère">
-        <option value="titre">Tri : titre A→Z</option>
-        <option value="note">Tri : meilleure note</option>
-        <option value="statut">Tri : statut</option>
-        <option value="progression">Tri : nombre de tomes</option>
+      <select class="sort" id="sort" aria-label="Ordre de rangement" title="Ordre de rangement">
+        <option value="titre">Titre A→Z</option>
+        <option value="note">Meilleure note</option>
+        <option value="statut">Statut</option>
+        <option value="progression">Nombre de tomes</option>
       </select>
+      <button class="btn" id="btn-list">Séries</button>
       <button class="btn" id="btn-add">Ajouter</button>
       <button class="btn primary" id="btn-import">Importer MAL</button>
     </div>
@@ -40,13 +41,14 @@
     <div class="vignette"></div>
     <div class="hint" id="hint">Glisse pour parcourir · touche un tome pour le sortir</div>
     <div class="controls">
-      <button id="b-left" aria-label="Défiler à gauche">◀</button>
-      <button id="b-right" aria-label="Défiler à droite">▶</button>
+      <button id="b-left" aria-label="Meuble précédent">◀</button>
+      <span class="mod-label" id="mod-label" aria-live="polite">Meuble 1 / 1</span>
+      <button id="b-right" aria-label="Meuble suivant">▶</button>
       <button id="b-out" aria-label="Dézoomer">−</button>
       <button id="b-in" aria-label="Zoomer">+</button>
     </div>
     <div class="legend" id="legend"></div>
-    <a class="credit" href="https://anilist.co" target="_blank" rel="noopener">Couvertures : AniList</a>
+    <div class="credit">Couvertures : <a href="https://anilist.co" target="_blank" rel="noopener">AniList</a> · <a href="https://mangadex.org" target="_blank" rel="noopener">MangaDex</a></div>
     <aside class="panel" id="panel" hidden aria-live="polite"></aside>
     <div class="lost" id="lost" hidden><p>L'affichage 3D s'est interrompu.</p><button class="btn primary" onclick="location.reload()">Recharger l'étagère</button></div>
   </div>
@@ -64,7 +66,7 @@
       <input type="file" id="file" accept=".xml,.gz,application/xml,application/gzip" hidden>
     </label>
     <p class="err" id="imp-err" hidden></p>
-    <p class="note">Les couvertures viennent d'<a href="https://anilist.co" target="_blank" rel="noopener">AniList</a>. Les séries d'exemple sont retirées à l'import. Les tomes sont repris de ton compteur de volumes lus ; si tu ne suis que les chapitres, ils sont estimés.</p>
+    <p class="note">Les couvertures viennent d'<a href="https://anilist.co" target="_blank" rel="noopener">AniList</a> (séries) et de <a href="https://mangadex.org" target="_blank" rel="noopener">MangaDex</a> (tomes). Les séries d'exemple sont retirées à l'import. Les tomes sont repris de ton compteur de volumes lus ; si tu ne suis que les chapitres, ils sont estimés.</p>
     <div class="row"><button class="btn" id="imp-close">Fermer</button></div>
   </div>
 </div>
@@ -84,6 +86,15 @@
     <p class="note">Mets 0 en « parus » pour une série encore en cours de parution.</p>
     <div class="row"><button class="btn primary" type="submit">Ranger sur l'étagère</button><button class="btn" type="button" id="add-close">Annuler</button></div>
   </form>
+</div>
+<div class="overlay" id="ov-list" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="l-t">
+    <h2 id="l-t">Mes séries</h2>
+    <label class="f">Rechercher<input id="l-q" type="search" placeholder="Titre d'une série" autocomplete="off"></label>
+    <div class="al-results list" id="l-items"></div>
+    <p class="note">Les séries sans tome lu ne prennent pas de place sur les étagères : retrouve-les ici.</p>
+    <div class="row"><button class="btn" id="l-close">Fermer</button></div>
+  </div>
 </div>
 <div class="toast" id="toast" hidden></div>
 <script src="vendor/three.min.js"></script>

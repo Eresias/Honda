@@ -8,7 +8,7 @@ const STATUS={
   abandonne:{m:'Abandonné',a:'Abandonné',c:'#b8524a'}
 };
 const ORDER=Object.keys(STATUS);
-const EPS=12, GHOST_CAP=80, KEY='hondana.v1';
+const EPS=12, KEY='hondana.v1';
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const uid=()=>Math.random().toString(36).slice(2,10);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -204,7 +204,8 @@ function spineTexture(s,pal,tpl,num){
 }
 function coverTexture(s,pal,tpl,idx){
   const W=384,H=576,[c,x]=canvas2d(W,H);
-  const real=s.al&&(s.al.coverXL||s.al.cover);const img=real?coverImg(s.al.coverXL||s.al.cover,true):null;
+  const want=coverWants(s,idx);let img=null,rank=99;
+  for(let i=0;i<want.length;i++){const im=coverImg(want[i]);if(im&&!img){img=im;rank=i}}
   if(img){
     const r=Math.max(W/img.naturalWidth,H/img.naturalHeight),dw=img.naturalWidth*r,dh=img.naturalHeight*r;
     try{x.drawImage(img,(W-dw)/2,(H-dh)/2,dw,dh)}catch(e){}
@@ -212,7 +213,7 @@ function coverTexture(s,pal,tpl,idx){
     rr(x,W-96,H-58,80,40,20);x.fillStyle='rgba(12,13,17,.82)';x.fill();
     x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';x.font='500 20px "IBM Plex Mono",monospace';
     x.fillText(tab==='anime'?`C.${idx}`:`T.${idx}`,W-56,H-37);
-    return tex(c);
+    return {tex:tex(c),rank};
   }
   const g=x.createLinearGradient(0,0,W,H);g.addColorStop(0,shade(pal,.5,.1));g.addColorStop(1,shade(pal,.22,.05));x.fillStyle=g;x.fillRect(0,0,W,H);
   const r=rng(hash(s.title)+idx);
@@ -230,7 +231,7 @@ function coverTexture(s,pal,tpl,idx){
   x.textAlign='left';x.fillStyle='#fff';x.font='500 15px "IBM Plex Mono",monospace';x.fillText(tab==='anime'?`COFFRET · ÉP. ${(idx-1)*EPS+1}–${idx*EPS}`:'TOME',40,H-70);
   x.fillStyle='rgba(255,255,255,.75)';x.beginPath();x.moveTo(40,H-40);x.lineTo(48,H-32);x.lineTo(40,H-24);x.lineTo(32,H-32);x.closePath();x.fill();
   const sh=x.createLinearGradient(0,0,W,0);sh.addColorStop(0,'rgba(255,255,255,0)');sh.addColorStop(.6,'rgba(255,255,255,.06)');sh.addColorStop(.75,'rgba(255,255,255,0)');x.fillStyle=sh;x.fillRect(0,0,W,H);
-  return tex(c);
+  return {tex:tex(c),rank:99};
 }
 function noiseTex(w,h,base,amt,seed){const[c,x]=canvas2d(w,h);x.fillStyle=base;x.fillRect(0,0,w,h);const r=rng(seed);
   for(let i=0;i<w*h*.6;i++){const v=r();x.fillStyle=v<.5?`rgba(0,0,0,${amt*r()})`:`rgba(255,255,255,${amt*.6*r()})`;x.fillRect(r()*w,r()*h,1,1)}
@@ -251,17 +252,16 @@ const KEEP=new Set([CAB,BACK,ALU,LEDM,GLOW,WALL,FLOOR,...Object.values(PAGES),..
 
 /* ---------- état de scène ---------- */
 let shelf=new THREE.Group(); scene.add(shelf);
-let recs=[], inst=[], layout={W:8,H:9};
+let recs=[], inst=[], layout={W:8,H:9,mods:1,OW:7.88,centers:[3.94]};
 const proxies=new Map(); let selKey=null, hovKey=null;
 const cam={x:4,y:4,d:12,tx:4,ty:4,td:12,fitD:12};
 const par={x:0,y:0,tx:0,ty:0};
 const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),V=new THREE.Vector3(),ONE=new THREE.Vector3(1,1,1),Z=new THREE.Vector3(0,0,1);
 
 /* ---------- construction ---------- */
-function units(s){
-  if(tab==='manga'){const solid=s.done,ghost=s.total>s.done?Math.min(GHOST_CAP,s.total-s.done):0;return {solid,ghost:(solid+ghost)===0?1:ghost}}
-  const solid=Math.ceil(s.done/EPS),all=Math.max(solid,Math.ceil(s.total/EPS));const ghost=Math.min(GHOST_CAP,all-solid);return {solid,ghost:(solid+ghost)===0?1:ghost};
-}
+// Meubles de taille fixe, côte à côte : quand l'un est plein, le suivant se remplit.
+const MOD_IW={manga:7.6,anime:7.6}, MOD_SIDE=.14, MOD_GAP=.75;
+function units(s){return tab==='manga'?s.done:Math.ceil(s.done/EPS)}
 function sorted(){
   const l=[...state[tab]];const byT=(a,b)=>a.title.localeCompare(b.title,'fr');
   if(sortBy==='note')l.sort((a,b)=>b.score-a.score||byT(a,b));
@@ -270,10 +270,7 @@ function sorted(){
   else l.sort(byT);return l;
 }
 function placeMatrix(p,hidden){Q.setFromAxisAngle(Z,p.rz);M.compose(V.set(p.x,hidden?-1000:p.y,p.z),Q,ONE);return M}
-function setInst(rec,idx,visible){
-  const ghost=idx>rec.solid,im=ghost?rec.ghostMesh:rec.solidMesh;if(!im)return;
-  im.setMatrixAt(ghost?idx-rec.solid-1:idx-1,placeMatrix(rec.pos[idx-1],!visible));im.instanceMatrix.needsUpdate=true;
-}
+function setInst(rec,idx,visible){if(!rec.mesh)return;rec.mesh.setMatrixAt(idx-1,placeMatrix(rec.pos[idx-1],!visible));rec.mesh.instanceMatrix.needsUpdate=true}
 function disposeShelf(){
   for(const m of proxies.values())releaseProxy(m,true);proxies.clear();selKey=null;hovKey=null;
   const mats=new Set(),geos=new Set(),texs=new Set();
@@ -284,120 +281,121 @@ function disposeShelf(){
   scene.remove(shelf);shelf=new THREE.Group();scene.add(shelf);recs=[];inst=[];
 }
 function add(geo,material,x,y,z,opt={}){const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=!!opt.cast;m.receiveShadow=opt.receive!==false;if(opt.order)m.renderOrder=opt.order;shelf.add(m);return m}
+const modX0=m=>m*(MOD_IW[tab]+2*MOD_SIDE+MOD_GAP);
 function build(keep){
-  const prev=selKey;
+  const prevSel=selKey,prevPanel=panelSid;
   try{
     disposeShelf();
-    const T=TYPE[tab],list=sorted(),gap=.005,sgap=.08,pad=.28;
-    let total=0;const plan=list.map(s=>{const u=units(s);total+=(u.solid+u.ghost)*(T.w+gap)+sgap;return{s,u}});
-    let W=Math.max(7,total/ROWS*1.06+pad*2),pos=[];
-    for(let tries=0;tries<40;tries++){
-      pos=[];let row=0,cur=pad,ok=true;
-      for(const p of plan){const n=p.u.solid+p.u.ghost;
-        for(let i=0;i<n;i++){if(cur+T.w>W-pad){row++;cur=pad;if(row>=ROWS){ok=false;break}}pos.push({p,i,row,x:cur+T.w/2});cur+=T.w+gap}
-        if(!ok)break;cur+=sgap}
-      if(ok)break;W*=1.06;
+    const T=TYPE[tab],IW=MOD_IW[tab],list=sorted(),gap=.005,sgap=.08,pad=.2,pitch=T.w+gap;
+    const cap=Math.floor((IW-2*pad+gap)/pitch);
+    // rangement : de gauche à droite, planche par planche, puis meuble suivant
+    const pos=[],plan=[];let mod=0,row=0,cur=pad;
+    const nextRow=()=>{row++;cur=pad;if(row>=ROWS){row=0;mod++}};
+    for(const s of list){const n=units(s);if(n<=0)continue;plan.push(s);
+      const left=Math.floor((IW-pad-cur+gap)/pitch);
+      // une petite série qui ne tient plus sur la planche passe entière à la suivante
+      if(cur>pad&&n<=cap&&left<n&&left<cap*.3)nextRow();
+      for(let i=0;i<n;i++){if(cur+T.w>IW-pad)nextRow();pos.push({s,i,mod,row,x:modX0(mod)+MOD_SIDE+cur+T.w/2});cur+=pitch}
+      cur+=sgap;
     }
-    const H=PLANK+ROWS*ROW_H;layout={W,H};LED.uTopY.value=H;
+    const mods=pos.length?pos[pos.length-1].mod+1:1,OW=IW+2*MOD_SIDE;
+    const W=modX0(mods-1)+OW,H=PLANK+ROWS*ROW_H;
+    layout={W,H,mods,OW,centers:Array.from({length:mods},(_,m)=>modX0(m)+OW/2)};LED.uTopY.value=H;
     const baseY=r=>PLANK+(ROWS-1-r)*ROW_H;
 
-    // pièce : mur, sol, socle
-    add(new THREE.PlaneGeometry(W+80,40),WALL,W/2,H/2+4,-.95);
-    WALL.map.repeat.set((W+80)/3,40/3);
+    // pièce : mur et sol
+    add(new THREE.PlaneGeometry(W+80,40),WALL,W/2,H/2+4,-.95);WALL.map.repeat.set((W+80)/3,40/3);
     const fl=add(new THREE.PlaneGeometry(W+80,30),FLOOR,W/2,-.16,6);fl.rotation.x=-Math.PI/2;
-    add(new THREE.BoxGeometry(W+.36,.16,1.56),CAB,W/2,-.08,-.03,{cast:true});
-    // meuble noir mat
-    const plankG=new THREE.BoxGeometry(W+.2,PLANK,1.5),aluG=new THREE.BoxGeometry(W+.2,PLANK+.01,.02);
-    const ledG=new THREE.BoxGeometry(W,.016,.025),glowG=new THREE.PlaneGeometry(W,.7);
-    for(let r=0;r<=ROWS;r++){
-      const y=r===ROWS?H-PLANK/2:baseY(r)-PLANK/2;
-      add(plankG,CAB,W/2,y,-.03,{cast:true});add(aluG,ALU,W/2,y,.73);
-      if(r<ROWS){const yl=baseY(r)+ROW_H-PLANK-.014;add(ledG,LEDM,W/2,yl,.62,{receive:false});
-        const gl=add(glowG,GLOW,W/2,yl-.35,.6,{receive:false,order:3});gl.material=GLOW}
+    // meubles noirs mats
+    const plankG=new THREE.BoxGeometry(IW,PLANK,1.5),aluG=new THREE.BoxGeometry(IW,PLANK+.01,.02),
+      ledG=new THREE.BoxGeometry(IW-.1,.016,.025),glowG=new THREE.PlaneGeometry(IW,.7),
+      sideG=new THREE.BoxGeometry(MOD_SIDE,H,1.5),sideAluG=new THREE.BoxGeometry(.02,H,.02),
+      baseG=new THREE.BoxGeometry(OW+.04,.16,1.56),backG=new THREE.BoxGeometry(IW,H,.05);
+    BACK.map.repeat.set(IW/2,H/2);
+    for(let m=0;m<mods;m++){const x0=modX0(m),cx=x0+OW/2;
+      add(baseG,CAB,cx,-.08,-.03,{cast:true});
+      for(let r=0;r<=ROWS;r++){const y=r===ROWS?H-PLANK/2:baseY(r)-PLANK/2;
+        add(plankG,CAB,cx,y,-.03,{cast:true});add(aluG,ALU,cx,y,.73);
+        if(r<ROWS){const yl=baseY(r)+ROW_H-PLANK-.014;add(ledG,LEDM,cx,yl,.62,{receive:false});add(glowG,GLOW,cx,yl-.35,.6,{receive:false,order:3})}}
+      [x0+MOD_SIDE/2,x0+OW-MOD_SIDE/2].forEach(xx=>{add(sideG,CAB,xx,H/2,-.03,{cast:true});add(sideAluG,ALU,xx,H/2,.74)});
+      add(backG,BACK,cx,H/2,-.78);
     }
-    const sideG=new THREE.BoxGeometry(.14,H,1.5);
-    [-.07,W+.07].forEach(xx=>{add(sideG,CAB,xx,H/2,-.03,{cast:true});add(new THREE.BoxGeometry(.02,H,.02),ALU,xx,H/2,.74)});
-    BACK.map.repeat.set(W/2,H/2);
-    add(new THREE.BoxGeometry(W+.24,H,.05),BACK,W/2,H/2,-.78);
 
-    // tomes, une série = un bloc instancié
+    // tomes : une série = un bloc instancié, seuls les tomes lus sont rangés
     const byS=new Map();
-    for(const q of pos){let a=byS.get(q.p.s.id);if(!a){a=[];byS.set(q.p.s.id,a)}
-      const r=rng(hash(q.p.s.id)+q.i*31),ghost=q.i>=q.p.u.solid;
-      a.push({x:q.x,y:baseY(q.row)+T.h/2,z:ghost?0:(r()-.5)*.035,rz:ghost?0:(r()-.5)*.012})}
+    for(const q of pos){let a=byS.get(q.s.id);if(!a){a=[];byS.set(q.s.id,a)}
+      const r=rng(hash(q.s.id)+q.i*31);a.push({x:q.x,y:baseY(q.row)+T.h/2,z:(r()-.5)*.035,rz:(r()-.5)*.012,mod:q.mod})}
     const box=new THREE.Vector4(6/T.cw,1-6/T.cw,12/512,(12+T.bh)/512);
-    for(const p of plan){
-      const s=p.s,P=byS.get(s.id);if(!P)continue;
-      const {pal,tpl}=styleFor(s),solid=Math.min(p.u.solid,P.length);
-      const rec={s,pal,tpl,pos:P,solid,count:P.length,art:tpl.kind==='art',spines:[]};
-      const coverC=bodyColor(pal,tpl);
-      rec.body=mat({color:coverC,roughness:T.rough,metalness:0});
-      rec.bodyG=mat({color:coverC,roughness:T.rough},{ghost:true});
+    for(const s of plan){
+      const P=byS.get(s.id);if(!P)continue;
+      const {pal,tpl}=styleFor(s);
+      const rec={s,pal,tpl,pos:P,count:P.length,art:tpl.kind==='art',spines:[]};
+      rec.body=mat({color:bodyColor(pal,tpl),roughness:T.rough,metalness:0});
       const map=spineTexture(s,pal,tpl,0),dcol=lin(tpl.digit);rec.dcol=dcol;rec.map=map;
-      const mk=(from,to,ghost)=>{const n=to-from;if(n<=0)return null;
-        const nums=[];for(let i=from;i<to;i++)nums.push(i+1);
-        const spine=mat({map,roughness:T.rough},{num:{box,color:dcol},ghost,opacity:.15});rec.spines.push(spine);
-        const im=new THREE.InstancedMesh(instGeo(mergedGeo[tab],nums),[ghost?rec.bodyG:rec.body,ghost?PAGES_G[tab]:PAGES[tab],spine],n);
-        for(let i=0;i<n;i++)im.setMatrixAt(i,placeMatrix(P[from+i],false));
-        im.instanceMatrix.needsUpdate=true;
-        const bb=new THREE.Box3();for(let i=from;i<to;i++)bb.expandByPoint(V.set(P[i].x,P[i].y,0));
-        const big=new THREE.Sphere();bb.getBoundingSphere(big);big.radius+=1.3;const one=mergedGeo[tab].boundingSphere;
-        im.geometry.boundingSphere=big;
-        im.raycast=function(r,hits){this.geometry.boundingSphere=one;try{THREE.InstancedMesh.prototype.raycast.call(this,r,hits)}finally{this.geometry.boundingSphere=big}};
-        im.castShadow=!ghost;im.receiveShadow=!ghost;if(ghost)im.renderOrder=1;
-        im.userData={rec,offset:from};shelf.add(im);inst.push(im);return im};
-      rec.solidMesh=mk(0,solid,false);rec.ghostMesh=mk(solid,P.length,true);
+      const spine=mat({map,roughness:T.rough},{num:{box,color:dcol}});rec.spines.push(spine);
+      const im=new THREE.InstancedMesh(instGeo(mergedGeo[tab],P.map((_,i)=>i+1)),[rec.body,PAGES[tab],spine],P.length);
+      P.forEach((q,i)=>im.setMatrixAt(i,placeMatrix(q,false)));im.instanceMatrix.needsUpdate=true;
+      const bb=new THREE.Box3();P.forEach(q=>bb.expandByPoint(V.set(q.x,q.y,0)));
+      const big=new THREE.Sphere();bb.getBoundingSphere(big);big.radius+=1.3;const one=mergedGeo[tab].boundingSphere;
+      im.geometry.boundingSphere=big;
+      im.raycast=function(r,hits){this.geometry.boundingSphere=one;try{THREE.InstancedMesh.prototype.raycast.call(this,r,hits)}finally{this.geometry.boundingSphere=big}};
+      im.castShadow=true;im.receiveShadow=true;im.userData={rec,offset:0};shelf.add(im);inst.push(im);rec.mesh=im;
       recs.push(rec);
     }
     fitCamera(keep);updateHeader();
-    if(prev){const [sid,i]=prev.split(':');const rec=recs.find(r=>r.s.id===sid);
-      if(rec)selectUnit(rec,clamp(+i,1,rec.count),false,true);else closePanel()}
+    let restored=false;
+    if(prevSel){const [sid,i]=prevSel.split(':');const rec=recs.find(r=>r.s.id===sid);
+      if(rec){selectUnit(rec,clamp(+i,1,rec.count),false,true);restored=true}}
+    if(!restored){if(prevPanel&&findSeries(prevPanel)){panelSid=prevPanel;renderPanel()}else closePanel()}
   }catch(err){console.error(err);toast("L'étagère n'a pas pu s'afficher. Recharge la page pour réessayer.")}
 }
 
 function bodyColor(pal,tpl){return tpl.kind==='band'?lin('#ebe7de'):tpl.kind==='dark'?lin('#17181d'):pal.three}
-// une couverture vient d'arriver : on repeint la série sans reconstruire l'étagère
+// une couverture de série vient d'arriver : on repeint la série sans reconstruire l'étagère
 function restyle(rec){
   const st=styleFor(rec.s);if(st.tpl.kind!=='art'||rec.art)return;
   rec.pal=st.pal;rec.tpl=st.tpl;rec.art=true;
   const map=spineTexture(rec.s,st.pal,st.tpl,0);
   rec.spines.forEach(m=>{m.map=map;m.needsUpdate=true});if(rec.map)rec.map.dispose();rec.map=map;
-  rec.dcol.copy(lin(st.tpl.digit));const bc=bodyColor(st.pal,st.tpl);rec.body.color.copy(bc);rec.bodyG.color.copy(bc);
+  rec.dcol.copy(lin(st.tpl.digit));rec.body.color.copy(bodyColor(st.pal,st.tpl));
   for(const m of proxies.values())if(m.userData.rec===rec){const u=m.userData,old=u.spine.map;u.spine.map=spineTexture(rec.s,rec.pal,rec.tpl,u.idx);u.spine.needsUpdate=true;old.dispose();if(u.cover){removeCover(m);addCover(m)}}
 }
 
 /* ---------- tomes sortis ---------- */
 function getProxy(rec,idx){
   const key=rec.s.id+':'+idx;let m=proxies.get(key);if(m)return m;
-  const ghost=idx>rec.solid,T=TYPE[tab];
-  const spine=mat({map:spineTexture(rec.s,rec.pal,rec.tpl,idx),roughness:T.rough},{ghost,opacity:.4});
-  const body=ghost?rec.bodyG:rec.body,pages=ghost?PAGES_G[tab]:PAGES[tab];
-  m=new THREE.Mesh(boxGeo[tab],[body,body,pages,pages,spine,body]);m.castShadow=!ghost;m.receiveShadow=true;
+  const T=TYPE[tab];
+  const spine=mat({map:spineTexture(rec.s,rec.pal,rec.tpl,idx),roughness:T.rough});
+  m=new THREE.Mesh(boxGeo[tab],[rec.body,rec.body,PAGES[tab],PAGES[tab],spine,rec.body]);m.castShadow=true;m.receiveShadow=true;
   const p=rec.pos[idx-1];m.position.set(p.x,p.y,p.z);m.rotation.z=p.rz;
-  m.userData={proxy:true,rec,idx,ghost,key,base:p,pull:0,hover:0,tp:0,th:0,spine};
+  m.userData={proxy:true,rec,idx,key,base:p,pull:0,hover:0,tp:0,th:0,spine};
   shelf.add(m);proxies.set(key,m);setInst(rec,idx,false);return m;
 }
 function releaseProxy(m,skipRestore){
   const u=m.userData;shelf.remove(m);u.spine.map.dispose();u.spine.dispose();removeCover(m);
   if(!skipRestore){setInst(u.rec,u.idx,true);proxies.delete(u.key)}
 }
+// couvertures possibles d'un tome, de la meilleure à la plus générique
+function coverWants(s,idx){return[tab==='manga'?volUrl(s,idx,512):null,s.al&&s.al.coverXL,s.al&&s.al.cover].filter(Boolean)}
 function addCover(m){const u=m.userData;if(u.cover)return;
-  u.cover=mat({map:coverTexture(u.rec.s,u.rec.pal,u.rec.tpl,u.idx),roughness:tab==='anime'?.18:.4},{ghost:u.ghost,opacity:.6});
+  const r=coverTexture(u.rec.s,u.rec.pal,u.rec.tpl,u.idx);u.coverRank=r.rank;
+  u.cover=mat({map:r.tex,roughness:tab==='anime'?.18:.4});
   m.material=[u.cover,...m.material.slice(1)]}
 function removeCover(m){const u=m.userData;if(!u.cover)return;m.material=[m.material[1],...m.material.slice(1)];u.cover.map.dispose();u.cover.dispose();u.cover=null}
 const deg=THREE.MathUtils.degToRad;
 function selectUnit(rec,idx,move,instant){
   const key=rec.s.id+':'+idx;
   if(selKey&&selKey!==key){const o=proxies.get(selKey);if(o){o.userData.tp=0;removeCover(o)}}
-  const m=getProxy(rec,idx);m.userData.tp=1;selKey=key;addCover(m);
+  const m=getProxy(rec,idx);m.userData.tp=1;selKey=key;panelSid=rec.s.id;addCover(m);
   if(instant){m.userData.pull=1;m.userData.hover=0}
   if(move){const T=TYPE[tab],narrow=innerWidth<=720,bh=T.h*1.25,bw=T.d*1.3;
     const needH=Math.max(bh/(narrow?.38:.6),bw/((narrow?.75:.45)*camera.aspect));
     cam.td=needH/(2*Math.tan(deg(camera.fov/2)))+1.4;const v=vis(cam.td);
     cam.tx=m.userData.base.x+(narrow?0:v.w*.18);cam.ty=m.userData.base.y+.2-(narrow?v.h*.2:0);clampCam()}
-  renderPanel();
+  renderPanel();mdCovers(rec.s);
 }
-function closePanel(){if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;$('#panel').hidden=true}
+function openPanel(s){if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=s.id;renderPanel();mdCovers(s)}
+function closePanel(){if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=null;$('#panel').hidden=true}
 function setHover(hit){
   const key=hit?hit.rec.s.id+':'+hit.idx:null;if(key===hovKey)return;
   if(hovKey){const o=proxies.get(hovKey);if(o)o.userData.th=0}
@@ -406,17 +404,26 @@ function setHover(hit){
 
 /* ---------- caméra ---------- */
 function vis(d){const h=2*d*Math.tan(deg(camera.fov/2));return{h,w:h*camera.aspect}}
+// distance qui montre un meuble entier
+function modFitD(){const t=Math.tan(deg(camera.fov/2));return Math.max((layout.H*1.1/2)/t,((layout.OW+.8)/camera.aspect/2)/t)}
 function fitCamera(keep){
-  const {H,W}=layout;cam.fitD=(H*1.12/2)/Math.tan(deg(camera.fov/2));
+  const {H}=layout;cam.fitD=(H*1.12/2)/Math.tan(deg(camera.fov/2));
   if(!keep){const narrow=camera.aspect<.9;cam.td=narrow?cam.fitD*.5:cam.fitD;const v=vis(cam.td);
-    cam.tx=Math.min(v.w/2,W/2);cam.ty=narrow?H-v.h/2:H/2;cam.x=cam.tx;cam.y=cam.ty;cam.d=cam.td}
+    cam.tx=narrow?layout.centers[0]-layout.OW/2+v.w/2:layout.centers[0];cam.ty=narrow?H-v.h/2:H/2;clampCam();cam.x=cam.tx;cam.y=cam.ty;cam.d=cam.td}
   clampCam();
 }
-function clampCam(){const {W,H}=layout;cam.td=clamp(cam.td,2.2,cam.fitD*1.15);const v=vis(cam.td);
+function clampCam(){const {W,H}=layout;cam.td=clamp(cam.td,2.2,Math.max(cam.fitD*1.15,modFitD()*1.05));const v=vis(cam.td);
   cam.tx=v.w>=W?W/2:clamp(cam.tx,v.w*.35,W-v.w*.35);cam.ty=v.h>=H?H/2:clamp(cam.ty,v.h*.4,H-v.h*.4)}
 let SW=1,SH=1;
 function resize(){const r=stage.getBoundingClientRect();SW=Math.max(1,r.width);SH=Math.max(1,r.height);renderer.setSize(SW,SH,false);camera.aspect=SW/SH;camera.updateProjectionMatrix();clampCam()}
 new ResizeObserver(resize).observe(stage);
+// meubles visibles à l'écran (au moins aux trois quarts)
+function visMods(){const v=vis(cam.td),half=v.w/2-layout.OW*.25;const ids=layout.centers.map((c,i)=>Math.abs(c-cam.tx)<=half?i:-1).filter(i=>i>=0);
+  if(ids.length)return[ids[0],ids[ids.length-1]];let b=0,bd=1e9;layout.centers.forEach((c,i)=>{const d=Math.abs(c-cam.tx);if(d<bd){bd=d;b=i}});return[b,b]}
+function goMod(i){i=clamp(i,0,layout.mods-1);const f=modFitD();if(cam.td>f)cam.td=f;cam.tx=layout.centers[i];if(cam.td>f*.9)cam.ty=layout.H/2;clampCam()}
+let modTxt='';
+function updModLabel(){const [a,b]=visMods(),n=layout.mods,t=a===b?`Meuble ${a+1} / ${n}`:`Meubles ${a+1}–${b+1} / ${n}`;if(t===modTxt)return;modTxt=t;
+  $('#mod-label').textContent=t;$('#b-left').disabled=a===0;$('#b-right').disabled=b>=n-1}
 
 /* ---------- interactions ---------- */
 const ray=new THREE.Raycaster(),ndc=new THREE.Vector2(),pointers=new Map();
@@ -455,68 +462,103 @@ canvas.addEventListener('wheel',e=>{e.preventDefault();
   if(e.ctrlKey)cam.td*=1+e.deltaY*.01;else{const dx=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;cam.tx+=dx*vis(cam.d).w*.0012}
   clampCam()},{passive:false});
 const panBy=f=>{cam.tx+=vis(cam.d).w*f;clampCam()};
-$('#b-left').onclick=()=>panBy(-.7);$('#b-right').onclick=()=>panBy(.7);
+$('#b-left').onclick=()=>goMod(visMods()[0]-1);$('#b-right').onclick=()=>goMod(visMods()[1]+1);
 $('#b-in').onclick=()=>{cam.td/=1.35;clampCam()};$('#b-out').onclick=()=>{cam.td*=1.35;clampCam()};
 addEventListener('keydown',e=>{
   if(e.target.closest&&e.target.closest('input,select,textarea'))return;
-  if(e.key==='Escape'){if(!$('#ov-add').hidden)return closeModal('#ov-add');if(!$('#ov-import').hidden)return closeModal('#ov-import');closePanel()}
+  if(e.key==='Escape'){for(const id of ['#ov-add','#ov-import','#ov-list'])if(!$(id).hidden)return closeModal(id);closePanel()}
   if(e.key==='ArrowRight')panBy(.35);if(e.key==='ArrowLeft')panBy(-.35);
   if(e.key==='ArrowUp'){cam.ty+=1;clampCam()}if(e.key==='ArrowDown'){cam.ty-=1;clampCam()}
 });
 
 /* ---------- panneau ---------- */
+let panelSid=null;
+const viaProxy=u=>location.protocol.startsWith('http')?'/api/cover?u='+encodeURIComponent(u):u;
+function volUrl(s,idx,size){const f=s.md&&s.md.v&&s.md.v[idx];return f?`https://uploads.mangadex.org/covers/${s.md.id}/${f}.${size}.jpg`:null}
 function findSeries(id){return state[tab].find(s=>s.id===id)}
-function opts(sel){return ORDER.map(k=>`<option value="${k}"${k===sel?' selected':''}>${tab==='anime'?STATUS[k].a:STATUS[k].m}</option>`).join('')}
+const stLbl=k=>tab==='anime'?STATUS[k].a:STATUS[k].m;
+function opts(sel){return ORDER.map(k=>`<option value="${k}"${k===sel?' selected':''}>${stLbl(k)}</option>`).join('')}
 function scoreOpts(sel){let o=`<option value="0"${!sel?' selected':''}>—</option>`;for(let i=10;i>=1;i--)o+=`<option value="${i}"${i===sel?' selected':''}>${i}</option>`;return o}
 function renderPanel(){
-  const p=$('#panel');const m=selKey&&proxies.get(selKey);if(!m){p.hidden=true;return}
-  const {rec,idx,ghost}=m.userData,s=findSeries(rec.s.id);if(!s){closePanel();return}
-  const T=TYPE[tab];
-  const kind=tab==='anime'?`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${idx*EPS}`:`Tome ${idx}`;
-  const stateTxt=ghost?(tab==='anime'?'pas encore vu':'pas encore lu'):(tab==='anime'?'vu':'lu');
+  const p=$('#panel');const s=panelSid&&findSeries(panelSid);if(!s){p.hidden=true;return}
+  const m=selKey&&proxies.get(selKey),idx=m?m.userData.idx:null,rec=recs.find(r=>r.s.id===s.id);
+  const T=TYPE[tab],man=tab==='manga',unitLbl=man?'Tomes':'Épisodes';
+  const kind=idx?(man?`Tome ${idx}`:`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${Math.min(idx*EPS,s.done)}`):(s.done?'Série':(man?"Aucun tome sur l'étagère":'Aucun épisode vu'));
   const pct=s.total>0?Math.round(Math.min(1,s.done/s.total)*100):null;
-  const unitLbl=tab==='anime'?'Épisodes':'Tomes';
-  const jumpN=tab==='anime'?Math.min(idx*EPS,s.total||idx*EPS):idx;
+  const full=s.total>0&&s.done>=s.total;
+  let src='';
+  if(man&&s.done){src=s.md?(idx&&!volUrl(s,idx,256)?"Pas de couverture pour ce tome sur MangaDex : celle de la série est affichée.":'Couvertures des tomes : MangaDex'):
+    mdBusy.has(s.id)?'Recherche des couvertures des tomes…':s.mdMiss?'Couvertures des tomes introuvables sur MangaDex : celle de la série est affichée.':''}
+  const strip=man&&s.md&&s.done?`<div class="vols" id="p-vols">${Array.from({length:Math.min(s.done,400)},(_,i)=>{const n=i+1,u=volUrl(s,n,256);
+    return `<button type="button" class="vol${n===idx?' cur':''}" data-n="${n}" aria-label="Tome ${n}">${u?`<img alt="" loading="lazy" src="${viaProxy(u)}">`:''}<span>${n}</span></button>`}).join('')}</div>`:'';
   p.innerHTML=`
-    <div class="p-top"><span class="p-kind">${kind} · ${stateTxt}</span><button class="x" id="p-close" aria-label="Fermer">×</button></div>
+    <div class="p-top"><span class="p-kind">${kind}</span><button class="x" id="p-close" aria-label="Fermer">×</button></div>
     <h2 class="p-title">${esc(s.title)}</h2>
-    <div class="pills"><span class="pill" style="background:${STATUS[s.status].c}">${tab==='anime'?STATUS[s.status].a:STATUS[s.status].m}</span>
+    <div class="pills"><span class="pill" style="background:${STATUS[s.status].c}">${stLbl(s.status)}</span>
       ${s.score?`<span class="pill" style="background:var(--ink);color:var(--surface)">${s.score}/10</span>`:''}
       ${s.example?'<span class="pill ex">Exemple</span>':''}${s.estimated?'<span class="pill ex">Tomes estimés</span>':''}</div>
     <div class="prog"><div class="prog-bar"><span style="width:${pct??100}%;${pct===null?'opacity:.35':''}"></span></div>
       <small>${s.done} ${unitLbl.toLowerCase()} ${T.verb}${s.total?` sur ${s.total}`:' · série en cours de parution'}</small></div>
+    ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''}>‹ Précédent</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''}>Suivant ›</button></div>`:''}
+    ${strip}
+    ${src?`<p class="note">${src}</p>`:''}
     <div class="grid2">
       <label class="f">Statut<select id="p-status">${opts(s.status)}</select></label>
       <label class="f">Note /10<select id="p-score">${scoreOpts(s.score)}</select></label>
       <label class="f">${unitLbl} ${T.verb}<input id="p-done" type="number" min="0" max="3000" value="${s.done}"></label>
-      <label class="f">${unitLbl} ${tab==='anime'?'au total':'parus'}<input id="p-total" type="number" min="0" max="3000" value="${s.total}"></label>
+      <label class="f">${unitLbl} ${man?'parus':'au total'}<input id="p-total" type="number" min="0" max="3000" value="${s.total}"></label>
     </div>
     <div class="row">
-      ${jumpN!==s.done?`<button class="btn primary" id="p-jump">${tab==='anime'?`J'ai vu jusqu'à l'ép. ${jumpN}`:`J'ai lu jusqu'au tome ${idx}`}</button>`:''}
+      ${full?'':`<button class="btn primary" id="p-plus">${man?`J'ai lu le tome ${s.done+1}`:`J'ai vu l'épisode ${s.done+1}`}</button>`}
       <button class="btn danger" id="p-del">Retirer</button>
     </div>
     ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}
     <div id="p-confirm"></div>`;
   p.hidden=false;
   $('#p-close').onclick=closePanel;
-  const upd=fn=>{fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;save();build(true)};
+  // après un changement, on reconstruit ; « last » sort le dernier tome rangé
+  const upd=(fn,last)=>{fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;save();build(true);
+    if(last){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,r.count,true,false);else{panelSid=s.id;renderPanel()}}};
   $('#p-status').onchange=e=>upd(s=>s.status=e.target.value);
   $('#p-score').onchange=e=>upd(s=>s.score=+e.target.value);
-  $('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false});
+  $('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},true);
   $('#p-total').onchange=e=>upd(s=>s.total=clamp(+e.target.value||0,0,3000));
-  const j=$('#p-jump');if(j)j.onclick=()=>upd(s=>{s.done=jumpN;s.estimated=false;if(s.status==='a_lire')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'});
-  $('#p-del').onclick=()=>{$('#p-confirm').innerHTML=`<div class="confirm"><span>Retirer « ${esc(s.title)} » de l'étagère ?</span><div class="row"><button class="btn danger" id="p-del-ok">Retirer</button><button class="btn" id="p-del-no">Garder</button></div></div>`;
+  const plus=$('#p-plus');if(plus)plus.onclick=()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},true);
+  const pv=$('#p-prev'),nx=$('#p-next');
+  if(pv)pv.onclick=()=>selectUnit(rec,idx-1,true,false);if(nx)nx.onclick=()=>selectUnit(rec,idx+1,true,false);
+  const vols=$('#p-vols');
+  if(vols){vols.querySelectorAll('.vol').forEach(b=>b.onclick=()=>{if(rec)selectUnit(rec,Math.min(+b.dataset.n,rec.count),true,false)});
+    const c=vols.querySelector('.cur');if(c)vols.scrollLeft=c.offsetLeft-vols.clientWidth/2+c.offsetWidth/2}
+  $('#p-del').onclick=()=>{$('#p-confirm').innerHTML=`<div class="confirm"><span>Retirer « ${esc(s.title)} » de ta bibliothèque ?</span><div class="row"><button class="btn danger" id="p-del-ok">Retirer</button><button class="btn" id="p-del-no">Garder</button></div></div>`;
     $('#p-del-no').onclick=()=>$('#p-confirm').innerHTML='';
     $('#p-del-ok').onclick=()=>{state[tab]=state[tab].filter(x=>x.id!==s.id);save();closePanel();build(true);toast(`« ${s.title} » retiré`)}};
 }
+
+/* ---------- liste des séries ---------- */
+function renderList(){
+  const q=$('#l-q').value.trim().toLowerCase(),man=tab==='manga';
+  const items=sorted().filter(s=>!q||s.title.toLowerCase().includes(q));
+  const box=$('#l-items');
+  box.innerHTML=items.length?items.slice(0,500).map(s=>{const n=s.done;
+    const th=s.al&&s.al.cover?`<img alt="" loading="lazy" src="${viaProxy(s.al.cover)}">`:'<span class="ph"></span>';
+    const cnt=man?(n?`${n} tome${n>1?'s':''}`:'aucun tome rangé'):(n?`${n} épisode${n>1?'s':''}`:'aucun épisode vu');
+    return `<button type="button" class="al-item" data-id="${s.id}">${th}<span><b>${esc(s.title)}</b><small><i class="dot" style="background:${STATUS[s.status].c}"></i>${stLbl(s.status)} · ${cnt}</small></span></button>`}).join('')
+    :'<p class="al-empty">Aucune série ne correspond à cette recherche.</p>';
+  box.querySelectorAll('.al-item').forEach(b=>b.onclick=()=>{const s=findSeries(b.dataset.id);if(!s)return;closeModal('#ov-list');
+    const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,rec.count,true,false);else openPanel(s)});
+}
+$('#btn-list').onclick=()=>{$('#l-q').value='';$('#l-t').textContent=tab==='manga'?'Mes mangas':'Mes animes';renderList();openModal('#ov-list')};
+$('#l-q').addEventListener('input',renderList);
+$('#l-close').onclick=()=>closeModal('#ov-list');
 
 /* ---------- en-tête ---------- */
 function updateHeader(){
   document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
   const l=state[tab];const done=l.reduce((a,s)=>a+s.done,0);
-  $('#stats').innerHTML=`<b>${l.length}</b> séries · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?'tomes lus':'épisodes vus'}`;
+  $('#stats').innerHTML=`<b>${l.length}</b> séries · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?'tomes lus':'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
   $('#banner').hidden=!l.some(s=>s.example);
-  $('#legend').innerHTML=ORDER.map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${tab==='anime'?STATUS[k].a:STATUS[k].m}</span>`).join('')+`<span><i style="background:transparent;border:1px dashed #8a90a0"></i>${tab==='anime'?'Non vu':'Non lu'}</span>`;
+  $('#legend').innerHTML=ORDER.map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${stLbl(k)}</span>`).join('');
+  modTxt='';
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(tab===b.dataset.tab)return;closePanel();tab=b.dataset.tab;build(false);progress()});
 $('#sort').onchange=e=>{sortBy=e.target.value;build(true)};
@@ -525,7 +567,7 @@ function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTim
 /* ---------- modales ---------- */
 function openModal(id){$(id).hidden=false;const f=$(id).querySelector('input:not([type=file]),button');f&&f.focus()}
 function closeModal(id){$(id).hidden=true}
-['#ov-import','#ov-add'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id.slice(1))closeModal(id)}));
+['#ov-import','#ov-add','#ov-list'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id.slice(1))closeModal(id)}));
 $('#btn-import').onclick=$('#banner-import').onclick=()=>{$('#imp-err').hidden=true;openModal('#ov-import')};
 $('#imp-close').onclick=()=>closeModal('#ov-import');
 $('#btn-add').onclick=()=>{
@@ -538,8 +580,8 @@ $('#add-form').onsubmit=e=>{e.preventDefault();
   const s={id:uid(),title:$('#a-title').value.trim().slice(0,80),done:clamp(+$('#a-done').value||0,0,3000),total:clamp(+$('#a-total').value||0,0,3000),status:$('#a-status').value,score:+$('#a-score').value};
   if(!s.title)return;if(alPick)applyAl(s,tab,alPick);if(s.status==='termine'&&s.total)s.done=s.total;
   state[tab].push(s);save();closeModal('#ov-add');build(true);
-  const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,Math.max(1,rec.solid),true,false);
-  toast(`« ${s.title} » rangé sur l'étagère`);if(!s.al)enrich()};
+  const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,rec.count,true,false);else openPanel(s);
+  toast(rec?`« ${s.title} » rangé sur l'étagère`:`« ${s.title} » ajouté à tes séries : ses tomes apparaîtront dès que tu en auras lu un.`);if(!s.al)enrich()};
 
 /* ---------- import MyAnimeList ---------- */
 const MAP={'completed':'termine','reading':'en_cours','watching':'en_cours','on-hold':'pause','dropped':'abandonne','plan to read':'a_lire','plan to watch':'a_lire','1':'en_cours','2':'termine','3':'pause','4':'abandonne','6':'a_lire'};
@@ -609,7 +651,7 @@ function alQuery(query,variables){
   };
   const p=alChain.then(run,run);alChain=p.catch(()=>{});return p;
 }
-const alInfo=m=>({id:m.id,cover:m.coverImage&&(m.coverImage.large||m.coverImage.extraLarge)||null,coverXL:m.coverImage&&(m.coverImage.extraLarge||m.coverImage.large)||null,color:m.coverImage&&m.coverImage.color||null,volumes:m.volumes||0,episodes:m.episodes||0});
+const alInfo=m=>({id:m.id,romaji:(m.title&&m.title.romaji)||'',cover:m.coverImage&&(m.coverImage.large||m.coverImage.extraLarge)||null,coverXL:m.coverImage&&(m.coverImage.extraLarge||m.coverImage.large)||null,color:m.coverImage&&m.coverImage.color||null,volumes:m.volumes||0,episodes:m.episodes||0});
 const alTitle=m=>(m.title&&(m.title.english||m.title.romaji))||'';
 function applyAl(s,kind,m){
   s.al=alInfo(m);if(!s.malId&&m.idMal)s.malId=m.idMal;delete s.alMiss;
@@ -649,7 +691,7 @@ async function enrich(){
 function afterBatch(kind){save();progress();if(kind!==tab)return;
   // les volumes connus d'AniList peuvent ajouter des tomes « non lus » : on reconstruit si besoin
   clearTimeout(restyleTimer);restyleTimer=setTimeout(()=>{const before=recs.map(r=>r.count).join(',');
-    const now=sorted().map(s=>{const u=units(s);return u.solid+u.ghost}).join(',');
+    const now=sorted().map(units).filter(n=>n>0).join(',');
     if(before!==now)build(true);else recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)})},400)}
 function progress(){
   const el=$('#al-progress');if(!el)return;const n=pendingCount(tab),tot=state[tab].length;
@@ -668,9 +710,9 @@ function coverImg(url,quiet){
 }
 let imgQueue=new Set(),imgTimer=0;
 function onImg(url){imgQueue.add(url);if(imgTimer)return;imgTimer=requestAnimationFrame(()=>{imgTimer=0;const q=imgQueue;imgQueue=new Set();
-  for(const rec of recs){const a=rec.s.al;if(!a)continue;
-    if(q.has(a.cover))restyle(rec);
-    if(q.has(a.coverXL))for(const m of proxies.values())if(m.userData.rec===rec&&m.userData.cover){removeCover(m);addCover(m)}}})}
+  for(const rec of recs){const a=rec.s.al;if(a&&q.has(a.cover))restyle(rec)}
+  for(const m of proxies.values()){const u=m.userData;if(!u.cover)continue;
+    if(coverWants(u.rec.s,u.idx).some((x,i)=>i<u.coverRank&&q.has(x))){removeCover(m);addCover(m)}}})}
 
 /* ---------- recherche AniList dans « Ajouter » ---------- */
 let alPick=null,searchTimer=0,searchSeq=0;
@@ -694,6 +736,56 @@ $('#a-title').addEventListener('input',()=>{
       if(seq===searchSeq&&!$('#ov-add').hidden)renderResults((d.Page&&d.Page.media)||[])}
     catch(e){if(seq===searchSeq){$('#a-results').hidden=false;$('#a-results').innerHTML='<p class="al-empty">La recherche AniList ne répond pas. Tu peux remplir les champs à la main.</p>'}}},450)});
 
+/* ---------- MangaDex : couvertures de chaque tome ---------- */
+// MangaDex exige de passer par un serveur : tout va par /api/mangadex et /api/cover.
+const mdBusy=new Set();let mdChain=Promise.resolve(),mdNext=0;
+function mdGet(params){
+  const run=async()=>{
+    for(let a=0;a<3;a++){
+      const w=mdNext-Date.now();if(w>0)await sleep(w);mdNext=Date.now()+260;
+      const r=await fetch('/api/mangadex?'+params.toString());
+      if(r.status===429){mdNext=Date.now()+(parseInt(r.headers.get('Retry-After'))||5)*1000;continue}
+      if(!r.ok)throw new Error('MangaDex '+r.status);
+      return r.json();
+    }
+    throw new Error('MangaDex indisponible');
+  };
+  const p=mdChain.then(run,run);mdChain=p.catch(()=>{});return p;
+}
+async function mdCovers(s){
+  if(tab!=='manga'||!s||s.md||s.mdMiss||mdBusy.has(s.id)||!location.protocol.startsWith('http'))return;
+  mdBusy.add(s.id);const kind=tab;if(panelSid===s.id)renderPanel();
+  try{
+    const q=new URLSearchParams({path:'manga',title:(s.al&&s.al.romaji)||s.q||s.title,limit:'10'});
+    ['safe','suggestive','erotica'].forEach(c=>q.append('contentRating[]',c));
+    const list=((await mdGet(q))||{}).data||[];
+    const links=x=>(x.attributes&&x.attributes.links)||{};
+    const alId=s.al&&s.al.id?String(s.al.id):'',malId=s.malId?String(s.malId):'';
+    // on ne garde que la fiche qui renvoie vers la même série AniList ou MyAnimeList
+    let m=list.find(x=>(alId&&links(x).al===alId)||(malId&&links(x).mal===malId));
+    if(!m&&!alId&&!malId)m=list[0];
+    if(!m){s.mdMiss=1;return}
+    const all=[];
+    for(let off=0;off<1000;off+=100){
+      const c=new URLSearchParams({path:'cover',limit:'100',offset:String(off)});c.append('manga[]',m.id);c.append('order[volume]','asc');
+      const r=await mdGet(c);all.push(...((r&&r.data)||[]));if(!r||off+100>=(r.total||0))break;
+    }
+    // une langue principale pour garder une série homogène, complétée par les autres
+    const byLoc={};
+    for(const c of all){const a=c.attributes||{};if(!a.volume||!/^\d+$/.test(a.volume)||!a.fileName)continue;(byLoc[a.locale||'?']=byLoc[a.locale||'?']||{})[+a.volume]=a.fileName}
+    const rank=l=>l==='ja'?0:l==='fr'?1:2;
+    const locs=Object.keys(byLoc).sort((a,b)=>Object.keys(byLoc[b]).length-Object.keys(byLoc[a]).length||rank(a)-rank(b));
+    const v={};for(const l of locs.reverse())Object.assign(v,byLoc[l]);
+    if(!Object.keys(v).length){s.mdMiss=1;return}
+    s.md={id:m.id,v};
+  }catch(e){console.warn(e)}
+  finally{mdBusy.delete(s.id);save();if(kind===tab)afterMd(s)}
+}
+function afterMd(s){
+  for(const m of proxies.values())if(m.userData.rec.s.id===s.id&&m.userData.cover){removeCover(m);addCover(m)}
+  if(panelSid===s.id)renderPanel();
+}
+
 /* ---------- boucle ---------- */
 function frame(){
   requestAnimationFrame(frame);
@@ -712,6 +804,7 @@ function frame(){
     if(u.tp===0&&u.th===0&&u.pull===0&&u.hover===0){releaseProxy(m);continue}
     m.position.set(u.base.x,u.base.y+u.pull*.28,u.base.z+u.hover*.16+u.pull*1.4);
     m.rotation.set(0,-u.pull*(Math.PI/2-.3),u.base.rz*(1-u.pull));m.scale.setScalar(1+u.pull*.18)}
+  updModLabel();
   renderer.render(scene,camera);
 }
 try{await Promise.race([document.fonts.ready,new Promise(r=>setTimeout(r,2500))])}catch(e){}
