@@ -79,6 +79,7 @@
     <p class="note" id="a-picked" hidden></p>
     <div class="grid2">
       <label class="f"><span id="a-done-l">Tomes lus</span><input id="a-done" type="number" min="0" max="3000" value="1"></label>
+      <label class="f" id="a-owned-f">Tomes possédés<input id="a-owned" type="number" min="0" max="3000" placeholder="autant que lus"></label>
       <label class="f"><span id="a-total-l">Tomes parus</span><input id="a-total" type="number" min="0" max="3000" value="0"></label>
       <label class="f">Statut<select id="a-status"></select></label>
       <label class="f">Note /10<select id="a-score"></select></label>
@@ -92,7 +93,14 @@
     <h2 id="l-t">Mes séries</h2>
     <label class="f">Rechercher<input id="l-q" type="search" placeholder="Titre d'une série" autocomplete="off"></label>
     <div class="al-results list" id="l-items"></div>
-    <p class="note">Les séries sans tome lu ne prennent pas de place sur les étagères : retrouve-les ici.</p>
+    <p class="note">Les séries sans tome ne prennent pas de place sur les étagères : retrouve-les ici.</p>
+    <div class="backup">
+      <b>Sauvegarde</b>
+      <p class="note">Ta bibliothèque n'existe que dans ce navigateur. Télécharge-la de temps en temps pour ne rien perdre, ou pour la retrouver sur un autre appareil.</p>
+      <div class="row"><button class="btn" type="button" id="bk-export">Télécharger (.json)</button><button class="btn" type="button" id="bk-import">Restaurer une sauvegarde</button></div>
+      <input type="file" id="bk-file" accept=".json,application/json" hidden>
+      <div id="bk-confirm"></div>
+    </div>
     <div class="row"><button class="btn" id="l-close">Fermer</button></div>
   </div>
 </div>

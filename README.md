@@ -10,7 +10,9 @@ Bibliothèque 3D de mangas et d'animes : chaque tome lu apparaît sur une étag�
 - Import de la liste MyAnimeList (fichier d'export `.xml` ou `.xml.gz`).
 - Couverture de chaque série et nombre de tomes récupérés sur [AniList](https://anilist.co).
 - Couverture de chaque tome récupérée sur [MangaDex](https://mangadex.org) quand on sort un tome de l'étagère.
-- La bibliothèque est enregistrée dans le navigateur de chaque visiteur (pas encore de comptes).
+- Mangas : tomes lus et tomes possédés sont suivis séparément. Les tomes possédés mais pas encore lus sont rangés en retrait, dans l'ombre, et la fiche d'une série indique les tomes qui restent à acheter.
+- La bibliothèque est enregistrée dans le navigateur de chaque visiteur (pas encore de comptes). Depuis « Séries », on peut la télécharger en `.json` et la restaurer, par exemple sur un autre appareil.
+- L'étagère 3D n'est redessinée que lorsque quelque chose bouge, pour ménager la batterie.
 
 ## Organisation des fichiers
 
