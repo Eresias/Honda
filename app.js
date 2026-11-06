@@ -24,7 +24,9 @@ const EXAMPLE={
     mk('Jujutsu Kaisen',24,47,'en_cours',8),mk('Mob Psycho 100',37,37,'termine',9),mk('Dandadan',12,24,'en_cours',8),mk('Monster',0,74,'a_lire',0)]
 };
 function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r);if(d&&Array.isArray(d.manga)&&Array.isArray(d.anime))return d;}}catch(e){}return null}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast("Ta bibliothèque n'a pas pu être enregistrée dans ce navigateur.")}}
+// enregistrement : dans le compte si on est connecté, sinon dans ce navigateur
+function save(){if(viewing)return;if(acct.user){scheduleSync();return}
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast("Ta bibliothèque n'a pas pu être enregistrée dans ce navigateur.")}}
 // remet chaque série d'aplomb ; pour les mangas, on possède toujours au moins les tomes lus
 function normalize(d){
   const out={};
@@ -34,7 +36,10 @@ function normalize(d){
     return n});
   return out;
 }
-const state=normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
+// /u/pseudo : on visite la bibliothèque publique de quelqu'un, en lecture seule
+const pm=location.pathname.match(/^\/u\/([a-z0-9_-]{3,24})\/?$/);
+const viewing=pm?{name:pm[1]}:null;
+const state=viewing?{manga:[],anime:[]}:normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
 const fixOwned=s=>{if(tab==='manga')s.owned=Math.max(clamp(+s.owned||0,0,3000),s.done)};
 let tab='manga', sortBy='titre';
 
@@ -478,7 +483,7 @@ $('#b-left').onclick=()=>goMod(visMods()[0]-1);$('#b-right').onclick=()=>goMod(v
 $('#b-in').onclick=()=>{cam.td/=1.35;clampCam()};$('#b-out').onclick=()=>{cam.td*=1.35;clampCam()};
 addEventListener('keydown',e=>{
   if(e.target.closest&&e.target.closest('input,select,textarea'))return;
-  if(e.key==='Escape'){for(const id of ['#ov-add','#ov-import','#ov-list'])if(!$(id).hidden)return closeModal(id);closePanel()}
+  if(e.key==='Escape'){for(const id of ['#ov-add','#ov-import','#ov-list','#ov-login','#ov-account'])if(!$(id).hidden)return closeModal(id);closePanel()}
   if(e.key==='ArrowRight')panBy(.35);if(e.key==='ArrowLeft')panBy(-.35);
   if(e.key==='ArrowUp'){cam.ty+=1;clampCam()}if(e.key==='ArrowDown'){cam.ty-=1;clampCam()}
 });
@@ -516,7 +521,7 @@ function renderPanel(){
     ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''}>‹ Précédent</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''}>Suivant ›</button></div>`:''}
     ${strip}
     ${src?`<p class="note">${src}</p>`:''}
-    <div class="grid2">
+    ${viewing?'':`<div class="grid2">
       <label class="f">Statut<select id="p-status">${opts(s.status)}</select></label>
       <label class="f">Note /10<select id="p-score">${scoreOpts(s.score)}</select></label>
       <label class="f">${unitLbl} ${T.verb}<input id="p-done" type="number" min="0" max="3000" value="${s.done}"></label>
@@ -527,27 +532,28 @@ function renderPanel(){
       ${full?'':`<button class="btn primary" id="p-plus">${man?`J'ai lu le tome ${s.done+1}`:`J'ai vu l'épisode ${s.done+1}`}</button>`}
       ${man&&!(s.total&&owned>=s.total)?`<button class="btn" id="p-buy">J'ai acheté le tome ${owned+1}</button>`:''}
       <button class="btn danger" id="p-del">Retirer</button>
-    </div>
+    </div>`}
     ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}
     <div id="p-confirm"></div>`;
   p.hidden=false;
   $('#p-close').onclick=closePanel;
+  const el=id=>$(id)||{};
   // après un changement, on reconstruit ; « last » sort le dernier tome rangé
   const upd=(fn,pick)=>{fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;fixOwned(s);save();build(true);
     if(pick){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,clamp(typeof pick==='function'?pick(s):r.count,1,r.count),true,false);else{panelSid=s.id;renderPanel()}}};
-  $('#p-status').onchange=e=>upd(s=>s.status=e.target.value);
-  $('#p-score').onchange=e=>upd(s=>s.score=+e.target.value);
-  $('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},s=>s.done);
+  el('#p-status').onchange=e=>upd(s=>s.status=e.target.value);
+  el('#p-score').onchange=e=>upd(s=>s.score=+e.target.value);
+  el('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},s=>s.done);
   const po=$('#p-owned');if(po)po.onchange=e=>{const v=clamp(+e.target.value||0,0,3000);if(v<s.done)toast(`Tu as lu ${s.done} tomes : ils restent sur l'étagère.`);upd(s=>s.owned=v,true)};
   const pb=$('#p-buy');if(pb)pb.onclick=()=>upd(s=>s.owned=Math.min(3000,Math.max(s.owned||0,s.done)+1),true);
-  $('#p-total').onchange=e=>upd(s=>s.total=clamp(+e.target.value||0,0,3000));
+  el('#p-total').onchange=e=>upd(s=>s.total=clamp(+e.target.value||0,0,3000));
   const plus=$('#p-plus');if(plus)plus.onclick=()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},s=>s.done);
   const pv=$('#p-prev'),nx=$('#p-next');
   if(pv)pv.onclick=()=>selectUnit(rec,idx-1,true,false);if(nx)nx.onclick=()=>selectUnit(rec,idx+1,true,false);
   const vols=$('#p-vols');
   if(vols){vols.querySelectorAll('.vol').forEach(b=>b.onclick=()=>{if(rec)selectUnit(rec,Math.min(+b.dataset.n,rec.count),true,false)});
     const c=vols.querySelector('.cur');if(c)vols.scrollLeft=c.offsetLeft-vols.clientWidth/2+c.offsetWidth/2}
-  $('#p-del').onclick=()=>{$('#p-confirm').innerHTML=`<div class="confirm"><span>Retirer « ${esc(s.title)} » de ta bibliothèque ?</span><div class="row"><button class="btn danger" id="p-del-ok">Retirer</button><button class="btn" id="p-del-no">Garder</button></div></div>`;
+  el('#p-del').onclick=()=>{$('#p-confirm').innerHTML=`<div class="confirm"><span>Retirer « ${esc(s.title)} » de ta bibliothèque ?</span><div class="row"><button class="btn danger" id="p-del-ok">Retirer</button><button class="btn" id="p-del-no">Garder</button></div></div>`;
     $('#p-del-no').onclick=()=>$('#p-confirm').innerHTML='';
     $('#p-del-ok').onclick=()=>{state[tab]=state[tab].filter(x=>x.id!==s.id);save();closePanel();build(true);toast(`« ${s.title} » retiré`)}};
 }
@@ -566,7 +572,8 @@ function renderList(){
   box.querySelectorAll('.al-item').forEach(b=>b.onclick=()=>{const s=findSeries(b.dataset.id);if(!s)return;closeModal('#ov-list');
     const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,rec.count,true,false);else openPanel(s)});
 }
-$('#btn-list').onclick=()=>{$('#l-q').value='';$('#bk-confirm').innerHTML='';$('#l-t').textContent=tab==='manga'?'Mes mangas':'Mes animes';renderList();openModal('#ov-list')};
+$('#btn-list').onclick=()=>{$('#l-q').value='';$('#bk-confirm').innerHTML='';
+  $('.backup').hidden=!!viewing;$('#bk-note').textContent=acct.user?"Ta bibliothèque est enregistrée dans ton compte. Tu peux aussi en télécharger une copie, ou restaurer une sauvegarde.":"Ta bibliothèque n'existe que dans ce navigateur. Télécharge-la de temps en temps pour ne rien perdre, ou crée un compte pour la retrouver partout.";$('#l-t').textContent=tab==='manga'?'Mes mangas':'Mes animes';renderList();openModal('#ov-list')};
 $('#l-q').addEventListener('input',renderList);
 $('#l-close').onclick=()=>closeModal('#ov-list');
 
@@ -592,11 +599,27 @@ $('#bk-file').onchange=async e=>{
   $('#bk-ok').onclick=apply;$('#bk-no').onclick=()=>box.innerHTML=''};
 
 /* ---------- en-tête ---------- */
+function updateBanner(){
+  const b=$('#banner'),l=state[tab];let h='';
+  if(viewing){
+    const own=acct.user&&viewing.profile&&viewing.profile.id===acct.user.id;
+    if(viewing.missing)h=`<span>Aucune bibliothèque publique ne s'appelle <b>@${esc(viewing.name)}</b>.</span> <a href="/">Créer la mienne</a>`;
+    else if(viewing.failed)h=`<span>La bibliothèque de <b>@${esc(viewing.name)}</b> n'a pas pu être chargée.</span>`;
+    else if(viewing.profile)h=`<span>Bibliothèque de <b>@${esc(viewing.profile.username)}</b>${own?' : ta page publique':''}.</span> <a href="/">${own?'Modifier ma bibliothèque':'Créer la mienne'}</a>`;
+    else h=`<span>Chargement de la bibliothèque de <b>@${esc(viewing.name)}</b>…</span>`;
+  }
+  else if(l.some(s=>s.example))h=`<span>Étagère d'exemple.</span> <button data-act="import">Importer ta liste MyAnimeList</button><span class="long">pour la remplacer par la tienne.</span>`;
+  else if(!l.length)h=`<span>${tab==='manga'?'Aucun manga':'Aucun anime'} pour l'instant.</span> <button data-act="import">Importer ta liste MyAnimeList</button> <span>ou</span> <button data-act="add">ajouter une série</button>`;
+  else if(sb&&!acct.user)h=`<span>Ta bibliothèque est enregistrée dans ce navigateur seulement.</span> <button data-act="login">Crée un compte</button><span class="long">pour la retrouver partout et la partager.</span>`;
+  b.innerHTML=h;b.hidden=!h;
+}
+$('#banner').addEventListener('click',e=>{const a=e.target.closest('[data-act]');if(!a)return;
+  ({import:()=>$('#btn-import').click(),add:()=>$('#btn-add').click(),login:()=>$('#btn-account').click()})[a.dataset.act]()});
 function updateHeader(){
   document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
   const l=state[tab];const done=l.reduce((a,s)=>a+s.done,0),own=tab==='manga'?l.reduce((a,s)=>a+Math.max(s.owned||0,s.done),0):0;
-  $('#stats').innerHTML=`<b>${l.length}</b> séries · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?`tomes lus · <b>${own.toLocaleString('fr-FR')}</b> possédés`:'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
-  $('#banner').hidden=!l.some(s=>s.example);
+  $('#stats').innerHTML=`<b>${l.length}</b> série${l.length>1?'s':''} · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?`tomes lus · <b>${own.toLocaleString('fr-FR')}</b> possédés`:'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
+  updateBanner();
   $('#legend').innerHTML=ORDER.map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${stLbl(k)}</span>`).join('')+(tab==='manga'?'<span><i style="background:#3a3c44"></i>Pas encore lu</span>':'');
   modTxt='';
 }
@@ -607,8 +630,8 @@ function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTim
 /* ---------- modales ---------- */
 function openModal(id){$(id).hidden=false;const f=$(id).querySelector('input:not([type=file]),button');f&&f.focus()}
 function closeModal(id){$(id).hidden=true}
-['#ov-import','#ov-add','#ov-list'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id.slice(1))closeModal(id)}));
-$('#btn-import').onclick=$('#banner-import').onclick=()=>{$('#imp-err').hidden=true;openModal('#ov-import')};
+['#ov-import','#ov-add','#ov-list','#ov-login','#ov-account'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id.slice(1))closeModal(id)}));
+$('#btn-import').onclick=()=>{$('#imp-err').hidden=true;openModal('#ov-import')};
 $('#imp-close').onclick=()=>closeModal('#ov-import');
 $('#btn-add').onclick=()=>{
   $('#add-form').reset();
@@ -703,7 +726,7 @@ function applyAl(s,kind,m){
 let enriching=false,restyleTimer=0;
 function pendingCount(kind){return state[kind].filter(s=>!s.al&&!s.alMiss).length}
 async function enrich(){
-  if(enriching)return;enriching=true;progress();
+  if(enriching||viewing)return;enriching=true;progress();
   let failed=false;
   try{
     for(const kind of [tab,tab==='manga'?'anime':'manga']){
@@ -827,6 +850,137 @@ function afterMd(s){
   if(panelSid===s.id)renderPanel();
 }
 
+/* ---------- comptes et pages publiques (Supabase) ---------- */
+const CFG=window.HONDANA_CONFIG||{};
+const sb=CFG.supabaseUrl&&CFG.supabaseKey&&window.supabase?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseKey):null;
+const acct={user:null,profile:null};
+const synced=new Map();let syncTimer=0,syncing=false,syncAgain=false,syncWarned=false;
+const PUBLIC_RE=/^\/u\/([a-z0-9_-]{3,24})\/?$/;
+const USER_RE=/^[a-z0-9_-]{3,24}$/;
+const RESERVED=['admin','api','app','u','login','compte','hondana','support','aide'];
+const pageUrl=u=>`${location.origin}/u/${u}`;
+const EXTRA=['al','md','estimated','q','alMiss','mdMiss'];
+function toRow(s,kind){const extra={};for(const k of EXTRA)if(s[k]!=null)extra[k]=s[k];
+  return{user_id:acct.user.id,id:String(s.id),kind,title:s.title.slice(0,200),done:s.done,owned:kind==='manga'?Math.max(s.owned||0,s.done):0,total:s.total,status:s.status,score:s.score,mal_id:s.malId||null,extra}}
+function fromRow(r){return{...(r.extra||{}),id:r.id,title:r.title,done:r.done,owned:r.owned||0,total:r.total,status:r.status,score:r.score,malId:r.mal_id||0}}
+function setLibrary(data){state.manga=data.manga;state.anime=data.anime}
+async function fetchSeries(uid){
+  const rows=[];
+  for(let from=0;from<20000;from+=1000){
+    const {data,error}=await sb.from('series').select('*').eq('user_id',uid).range(from,from+999);
+    if(error)throw error;rows.push(...data);if(data.length<1000)break;
+  }
+  const out={manga:[],anime:[]};for(const r of rows)(out[r.kind]||out.manga).push(fromRow(r));return normalize(out);
+}
+
+// page publique : /u/pseudo, en lecture seule
+async function loadPublic(name){
+  $('#banner').hidden=false;$('#banner').innerHTML=`<span>Chargement de la bibliothèque de <b>@${esc(name)}</b>…</span>`;
+  try{
+    const {data:p,error}=await sb.from('profiles').select('id,username,is_public').eq('username',name).maybeSingle();
+    if(error)throw error;
+    if(!p){viewing.missing=true;setLibrary({manga:[],anime:[]});build(false);return}
+    viewing.profile=p;setLibrary(await fetchSeries(p.id));
+    if(!state.manga.length&&state.anime.length)tab='anime';
+    document.title=`Bibliothèque de @${p.username} · Hondana`;
+    build(false);recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
+  }catch(e){console.warn(e);viewing.failed=true;updateHeader();toast("La bibliothèque n'a pas pu être chargée. Recharge la page pour réessayer.")}
+}
+
+// mon compte : la bibliothèque vient de Supabase, celle du navigateur y est versée une fois
+async function loadAccount(user){
+  acct.user=user;updateAccountBtn();
+  try{
+    const {data:p,error}=await sb.from('profiles').select('*').eq('id',user.id).maybeSingle();
+    if(error)throw error;acct.profile=p||null;updateAccountBtn();
+    const remote=await fetchSeries(user.id);synced.clear();
+    for(const k of ['manga','anime'])for(const s of remote[k])synced.set(k+':'+s.id,JSON.stringify(toRow(s,k)));
+    // séries de ce navigateur pas encore dans le compte
+    let added=0;
+    for(const k of ['manga','anime']){const have=new Set(remote[k].map(s=>s.title.toLowerCase()));
+      for(const s of state[k])if(!s.example&&!have.has(s.title.toLowerCase())){remote[k].push(s);have.add(s.title.toLowerCase());added++}}
+    closePanel();setLibrary(remote);
+    build(false);recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
+    if(added){toast(`${added} série${added>1?'s':''} de ce navigateur ajoutée${added>1?'s':''} à ton compte.`);sync()}
+    enrich();
+    if(!acct.profile)openModal('#ov-user');
+  }catch(e){console.warn(e);toast("Ton compte n'a pas pu être chargé. Recharge la page pour réessayer.")}
+}
+function scheduleSync(){if(!sb||!acct.user||viewing)return;clearTimeout(syncTimer);syncTimer=setTimeout(sync,1200)}
+async function sync(){
+  if(!acct.user)return;if(syncing){syncAgain=true;return}syncing=true;clearTimeout(syncTimer);
+  try{
+    const up=[],seen=new Set();
+    for(const k of ['manga','anime'])for(const s of state[k]){if(s.example)continue;const key=k+':'+s.id;seen.add(key);
+      const row=toRow(s,k),j=JSON.stringify(row);if(synced.get(key)!==j)up.push([key,row,j])}
+    for(let i=0;i<up.length;i+=400){const part=up.slice(i,i+400);
+      const {error}=await sb.from('series').upsert(part.map(x=>x[1]),{onConflict:'user_id,id'});if(error)throw error;
+      part.forEach(([key,,j])=>synced.set(key,j))}
+    const del=[...synced.keys()].filter(k=>!seen.has(k));
+    for(let i=0;i<del.length;i+=200){const part=del.slice(i,i+200);
+      const {error}=await sb.from('series').delete().eq('user_id',acct.user.id).in('id',part.map(k=>k.split(':')[1]));if(error)throw error;
+      part.forEach(k=>synced.delete(k))}
+    syncWarned=false;
+    // tout est dans le compte : la copie de ce navigateur ne sert plus
+    try{localStorage.removeItem(KEY)}catch(e){}
+  }catch(e){console.warn(e);if(!syncWarned){syncWarned=true;toast("Tes changements n'ont pas pu être enregistrés dans ton compte. Nouvel essai dans quelques secondes.")}setTimeout(scheduleSync,15000)}
+  finally{syncing=false;if(syncAgain){syncAgain=false;scheduleSync()}}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&syncTimer)sync()});
+
+function updateAccountBtn(){
+  const b=$('#btn-account');if(!sb){b.hidden=true;return}b.hidden=false;
+  b.textContent=acct.user?(acct.profile?'@'+acct.profile.username:'Mon compte'):'Se connecter';
+}
+$('#btn-account').onclick=()=>{
+  if(!acct.user){$('#lg-sent').hidden=true;$('#lg-err').hidden=true;$('#login-form').hidden=false;openModal('#ov-login');return}
+  if(!acct.profile){openModal('#ov-user');return}
+  const u=acct.profile.username;$('#ac-name').textContent='@'+u;$('#ac-url').value=pageUrl(u);$('#ac-open').href='/u/'+u;
+  $('#ac-public').checked=!!acct.profile.is_public;$('#ac-copy').textContent='Copier';openModal('#ov-account');
+};
+$('#login-form').onsubmit=async e=>{e.preventDefault();
+  const email=$('#lg-email').value.trim(),btn=$('#lg-send'),err=$('#lg-err');err.hidden=true;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){err.textContent='Entre une adresse e-mail valide, par exemple prenom@exemple.fr.';err.hidden=false;return}
+  btn.disabled=true;btn.textContent='Envoi…';
+  const {error}=await sb.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+'/'}});
+  btn.disabled=false;btn.textContent='Recevoir le lien';
+  if(error){err.textContent=/rate|limit|seconds/i.test(error.message)?"Trop de demandes de lien pour l'instant. Réessaie dans quelques minutes.":"Le lien n'a pas pu être envoyé. Vérifie l'adresse et réessaie.";err.hidden=false;return}
+  $('#login-form').hidden=true;$('#lg-sent').hidden=false;$('#lg-to').textContent=email;
+};
+$('#lg-close').onclick=$('#lg-close2').onclick=()=>closeModal('#ov-login');
+$('#user-form').onsubmit=async e=>{e.preventDefault();
+  const name=$('#us-name').value.trim().toLowerCase(),err=$('#us-err');err.hidden=true;
+  if(!USER_RE.test(name)){err.textContent='Ton pseudo doit faire de 3 à 24 caractères : lettres minuscules sans accent, chiffres, tiret ou tiret bas.';err.hidden=false;return}
+  if(RESERVED.includes(name)){err.textContent='Ce pseudo est réservé. Choisis-en un autre.';err.hidden=false;return}
+  const {data,error}=await sb.from('profiles').insert({id:acct.user.id,username:name,is_public:true}).select().single();
+  if(error){err.textContent=error.code==='23505'?'Ce pseudo est déjà pris. Choisis-en un autre.':"Ton pseudo n'a pas pu être enregistré. Réessaie.";err.hidden=false;return}
+  acct.profile=data;updateAccountBtn();closeModal('#ov-user');sync();
+  toast(`Ta page publique est prête : ${pageUrl(name)}`);
+};
+$('#us-name').addEventListener('input',e=>{const v=e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g,'');if(v!==e.target.value)e.target.value=v;$('#us-preview').textContent=pageUrl(v||'pseudo')});
+$('#us-later').onclick=()=>closeModal('#ov-user');
+$('#ac-copy').onclick=async()=>{const i=$('#ac-url');try{await navigator.clipboard.writeText(i.value);$('#ac-copy').textContent='Copié'}catch(e){i.focus();i.select()}};
+$('#ac-public').onchange=async e=>{const v=e.target.checked;
+  const {error}=await sb.from('profiles').update({is_public:v}).eq('id',acct.user.id);
+  if(error){e.target.checked=!v;toast("Le réglage n'a pas pu être enregistré. Réessaie.");return}
+  acct.profile.is_public=v;toast(v?'Ta page est visible par tout le monde.':'Ta page est maintenant privée : seul toi peux la voir.')};
+$('#ac-logout').onclick=async()=>{await sync();await sb.auth.signOut();location.href='/'};
+$('#ac-close').onclick=()=>closeModal('#ov-account');
+
+async function initAccounts(){
+  updateAccountBtn();if(!sb)return;
+  const {data}=await sb.auth.getSession();const session=data&&data.session;
+  if(viewing){
+    if(session){acct.user=session.user;updateAccountBtn();
+      sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle().then(({data})=>{acct.profile=data||null;updateAccountBtn();updateBanner()})}
+    await loadPublic(viewing.name);return}
+  if(session)await loadAccount(session.user);else updateBanner();
+  sb.auth.onAuthStateChange((ev,session)=>{
+    if(ev==='SIGNED_IN'&&session&&(!acct.user||acct.user.id!==session.user.id)){closeModal('#ov-login');loadAccount(session.user)}
+    if(ev==='SIGNED_OUT'&&acct.user){acct.user=null;acct.profile=null;location.href='/'}
+  });
+}
+
 /* ---------- boucle ---------- */
 // l'image n'est recalculée que si quelque chose bouge : sinon le navigateur se repose (batterie)
 let raf=0;
@@ -856,5 +1010,7 @@ function frame(){
 try{await Promise.race([document.fonts.ready,new Promise(r=>setTimeout(r,2500))])}catch(e){}
 resize();build(false);invalidate();
 // les couvertures déjà connues sont chargées, les autres sont demandées à AniList
-recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});enrich();
+if(viewing){$('#btn-add').hidden=true;$('#btn-import').hidden=true}
+recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
+initAccounts().catch(e=>console.warn(e)).then(()=>{if(!viewing&&!acct.user)enrich()});
 })();

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="app">
@@ -31,11 +31,9 @@
       <button class="btn" id="btn-add">Ajouter</button>
       <button class="btn primary" id="btn-import">Importer MAL</button>
     </div>
+    <button class="btn account" id="btn-account" hidden>Se connecter</button>
   </header>
-  <div class="banner" id="banner" hidden>
-    <span>Étagère d'exemple.</span>
-    <button id="banner-import">Importer ta liste MyAnimeList</button><span class="long">pour la remplacer par la tienne.</span>
-  </div>
+  <div class="banner" id="banner" hidden></div>
   <div class="stage" id="stage">
     <canvas id="c" aria-label="Étagère 3D de ta collection"></canvas>
     <div class="vignette"></div>
@@ -96,7 +94,7 @@
     <p class="note">Les séries sans tome ne prennent pas de place sur les étagères : retrouve-les ici.</p>
     <div class="backup">
       <b>Sauvegarde</b>
-      <p class="note">Ta bibliothèque n'existe que dans ce navigateur. Télécharge-la de temps en temps pour ne rien perdre, ou pour la retrouver sur un autre appareil.</p>
+      <p class="note" id="bk-note"></p>
       <div class="row"><button class="btn" type="button" id="bk-export">Télécharger (.json)</button><button class="btn" type="button" id="bk-import">Restaurer une sauvegarde</button></div>
       <input type="file" id="bk-file" accept=".json,application/json" hidden>
       <div id="bk-confirm"></div>
@@ -104,8 +102,46 @@
     <div class="row"><button class="btn" id="l-close">Fermer</button></div>
   </div>
 </div>
+<div class="overlay" id="ov-login" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="lg-t">
+    <h2 id="lg-t">Se connecter</h2>
+    <form id="login-form" class="col" novalidate>
+      <p class="note">Pas de mot de passe : tu reçois un lien de connexion par e-mail. Si tu n'as pas encore de compte, il est créé automatiquement.</p>
+      <label class="f">Adresse e-mail<input id="lg-email" type="email" autocomplete="email" placeholder="prenom@exemple.fr" required></label>
+      <p class="err" id="lg-err" hidden></p>
+      <div class="row"><button class="btn primary" type="submit" id="lg-send">Recevoir le lien</button><button class="btn" type="button" id="lg-close">Annuler</button></div>
+    </form>
+    <div id="lg-sent" class="col" hidden>
+      <p>Un lien de connexion a été envoyé à <b id="lg-to"></b>.</p>
+      <p class="note">Ouvre-le sur cet appareil, dans ce navigateur. Pense à regarder dans les courriers indésirables.</p>
+      <div class="row"><button class="btn" type="button" id="lg-close2">Fermer</button></div>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="ov-user" hidden>
+  <form class="modal" id="user-form" role="dialog" aria-modal="true" aria-labelledby="us-t" novalidate>
+    <h2 id="us-t">Choisis ton pseudo</h2>
+    <p class="note">Il sert d'adresse à ta page publique, que tu peux partager.</p>
+    <label class="f">Pseudo<input id="us-name" maxlength="24" autocomplete="username" placeholder="eresias" required></label>
+    <p class="note mono" id="us-preview"></p>
+    <p class="err" id="us-err" hidden></p>
+    <div class="row"><button class="btn primary" type="submit">Créer ma page</button><button class="btn" type="button" id="us-later">Plus tard</button></div>
+  </form>
+</div>
+<div class="overlay" id="ov-account" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ac-name">
+    <h2 id="ac-name"></h2>
+    <label class="f">Ta page publique<div class="row nowrap"><input id="ac-url" readonly><button class="btn" type="button" id="ac-copy">Copier</button></div></label>
+    <a class="btn link" id="ac-open" href="/">Voir ma page publique</a>
+    <label class="check"><input type="checkbox" id="ac-public"> <span>Page visible par tout le monde<small>Décoche pour la rendre privée : le lien ne montrera plus rien aux autres.</small></span></label>
+    <p class="note">Ta bibliothèque est enregistrée dans ton compte et se retrouve sur tous tes appareils.</p>
+    <div class="row"><button class="btn danger" type="button" id="ac-logout">Se déconnecter</button><button class="btn" type="button" id="ac-close">Fermer</button></div>
+  </div>
+</div>
 <div class="toast" id="toast" hidden></div>
-<script src="vendor/three.min.js"></script>
-<script src="app.js"></script>
+<script src="/vendor/three.min.js"></script>
+<script src="/vendor/supabase.js"></script>
+<script src="/config.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
