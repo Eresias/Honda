@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   if (target.protocol !== 'https:' || !ALLOWED.has(target.hostname)) return res.status(403).send('Domaine non autorisé');
 
   try {
-    const r = await fetch(target, { headers: { 'User-Agent': 'Hondana/1.0 (bibliotheque manga 3D)' } });
+    const r = await fetch(target, { headers: { 'User-Agent': 'MyWeebrary/1.0 (bibliotheque manga 3D; honda-neon-one.vercel.app)' } });
     if (!r.ok) return res.status(r.status).send('Image introuvable');
     const type = r.headers.get('content-type') || '';
     if (!type.startsWith('image/')) return res.status(415).send('Ce n\'est pas une image');

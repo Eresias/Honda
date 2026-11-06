@@ -1,4 +1,4 @@
-# Hondana
+# MyWeebrary
 
 Bibliothèque 3D de mangas et d'animes : chaque tome lu apparaît sur une étagère façon vitrine collector.
 

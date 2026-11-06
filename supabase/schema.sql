@@ -1,4 +1,4 @@
--- Hondana : comptes, pages publiques et bibliothèques.
+-- MyWeebrary : comptes, pages publiques et bibliothèques.
 -- À coller dans Supabase → SQL Editor → New query, puis « Run ». Peut être relancé sans risque.
 
 -- Profils : un par compte, avec le pseudo qui sert d'adresse publique (/u/pseudo).

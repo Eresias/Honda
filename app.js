@@ -8,7 +8,7 @@ const STATUS={
   abandonne:{m:'Abandonné',a:'Abandonné',c:'#b8524a'}
 };
 const ORDER=Object.keys(STATUS);
-const EPS=12, KEY='hondana.v1';
+const EPS=12, KEY='hondana.v1'; // clé gardée telle quelle pour ne pas perdre les bibliothèques déjà enregistrées
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const uid=()=>Math.random().toString(36).slice(2,10);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -581,15 +581,15 @@ $('#l-close').onclick=()=>closeModal('#ov-list');
 const count=d=>d.manga.length+d.anime.length;
 $('#bk-export').onclick=()=>{
   const d=new Date(),day=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const blob=new Blob([JSON.stringify({app:'hondana',version:1,exported:d.toISOString(),manga:state.manga,anime:state.anime},null,1)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`hondana-${day}.json`;document.body.appendChild(a);a.click();a.remove();
+  const blob=new Blob([JSON.stringify({app:'myweebrary',version:1,exported:d.toISOString(),manga:state.manga,anime:state.anime},null,1)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`myweebrary-${day}.json`;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast(`Sauvegarde téléchargée : ${count(state)} séries.`)};
 $('#bk-import').onclick=()=>$('#bk-file').click();
 $('#bk-file').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;const box=$('#bk-confirm');
   let d;
   try{const raw=JSON.parse(await readText(f));if(!raw||(!Array.isArray(raw.manga)&&!Array.isArray(raw.anime)))throw 0;d=normalize(raw)}
-  catch(_){box.innerHTML='<p class="err">Ce fichier n\'est pas une sauvegarde Hondana.</p>';return}
+  catch(_){box.innerHTML='<p class="err">Ce fichier n\'est pas une sauvegarde MyWeebrary.</p>';return}
   if(!count(d)){box.innerHTML='<p class="err">Cette sauvegarde ne contient aucune série.</p>';return}
   const mine=state.manga.concat(state.anime).filter(s=>!s.example).length;
   const apply=()=>{state.manga=d.manga;state.anime=d.anime;save();box.innerHTML='';closeModal('#ov-list');closePanel();
@@ -851,13 +851,13 @@ function afterMd(s){
 }
 
 /* ---------- comptes et pages publiques (Supabase) ---------- */
-const CFG=window.HONDANA_CONFIG||{};
+const CFG=window.MYWEEBRARY_CONFIG||{};
 const sb=CFG.supabaseUrl&&CFG.supabaseKey&&window.supabase?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseKey):null;
 const acct={user:null,profile:null};
 const synced=new Map();let syncTimer=0,syncing=false,syncAgain=false,syncWarned=false;
 const PUBLIC_RE=/^\/u\/([a-z0-9_-]{3,24})\/?$/;
 const USER_RE=/^[a-z0-9_-]{3,24}$/;
-const RESERVED=['admin','api','app','u','login','compte','hondana','support','aide'];
+const RESERVED=['admin','api','app','u','login','compte','hondana','myweebrary','weebrary','support','aide'];
 const pageUrl=u=>`${location.origin}/u/${u}`;
 const EXTRA=['al','md','estimated','q','alMiss','mdMiss'];
 function toRow(s,kind){const extra={};for(const k of EXTRA)if(s[k]!=null)extra[k]=s[k];
@@ -882,7 +882,7 @@ async function loadPublic(name){
     if(!p){viewing.missing=true;setLibrary({manga:[],anime:[]});build(false);return}
     viewing.profile=p;setLibrary(await fetchSeries(p.id));
     if(!state.manga.length&&state.anime.length)tab='anime';
-    document.title=`Bibliothèque de @${p.username} · Hondana`;
+    document.title=`Bibliothèque de @${p.username} · MyWeebrary`;
     build(false);recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
   }catch(e){console.warn(e);viewing.failed=true;updateHeader();toast("La bibliothèque n'a pas pu être chargée. Recharge la page pour réessayer.")}
 }

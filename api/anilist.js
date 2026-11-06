@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   try {
     const r = await fetch('https://graphql.anilist.co', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'Hondana/1.0 (bibliotheque manga 3D)' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'MyWeebrary/1.0 (bibliotheque manga 3D; honda-neon-one.vercel.app)' },
       body,
     });
     const text = await r.text();

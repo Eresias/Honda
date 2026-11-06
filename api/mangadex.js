@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   try {
     const r = await fetch(`https://api.mangadex.org${path}?${qs}`, {
-      headers: { Accept: 'application/json', 'User-Agent': 'Hondana/0.3 (bibliotheque manga 3D; honda-neon-one.vercel.app)' },
+      headers: { Accept: 'application/json', 'User-Agent': 'MyWeebrary/1.0 (bibliotheque manga 3D; honda-neon-one.vercel.app)' },
     });
     const text = await r.text();
     const retry = r.headers.get('retry-after');
