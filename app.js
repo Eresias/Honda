@@ -15,18 +15,27 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const esc=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---------- données ---------- */
-const mk=(title,done,total,status,score)=>({id:uid(),title,done,total,status,score,example:true});
+const mk=(title,done,total,status,score,owned)=>({id:uid(),title,done,total,status,score,owned:owned||done,example:true});
 const EXAMPLE={
-  manga:[mk('One Piece',105,0,'en_cours',9),mk('Berserk',41,0,'en_cours',10),mk('Frieren',13,0,'en_cours',9),
-    mk('Vinland Saga',14,14,'termine',9),mk('Chainsaw Man',12,0,'en_cours',8),mk('Spy x Family',5,0,'pause',7),
-    mk('Death Note',12,12,'termine',8),mk('Monster',7,18,'en_cours',9),mk('Fullmetal Alchemist',27,27,'termine',10),mk('Blue Period',0,0,'a_lire',0)],
+  manga:[mk('One Piece',105,0,'en_cours',9,108),mk('Berserk',41,0,'en_cours',10),mk('Frieren',13,0,'en_cours',9),
+    mk('Vinland Saga',14,14,'termine',9),mk('Chainsaw Man',12,0,'en_cours',8),mk('Spy x Family',5,0,'pause',7,7),
+    mk('Death Note',12,12,'termine',8),mk('Monster',7,18,'en_cours',9,10),mk('Fullmetal Alchemist',27,27,'termine',10),mk('Blue Period',0,0,'a_lire',0,3)],
   anime:[mk('Frieren',28,28,'termine',10),mk('Cowboy Bebop',26,26,'termine',9),{...mk("L'Attaque des Titans",87,87,'termine',9),q:'Shingeki no Kyojin'},
     mk('Jujutsu Kaisen',24,47,'en_cours',8),mk('Mob Psycho 100',37,37,'termine',9),mk('Dandadan',12,24,'en_cours',8),mk('Monster',0,74,'a_lire',0)]
 };
 function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r);if(d&&Array.isArray(d.manga)&&Array.isArray(d.anime))return d;}}catch(e){}return null}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast("Ta bibliothèque n'a pas pu être enregistrée dans ce navigateur.")}}
-const state=load()||JSON.parse(JSON.stringify(EXAMPLE));
-for(const k of ['manga','anime'])state[k]=state[k].filter(s=>s&&typeof s.title==='string'&&s.title.trim()).map(s=>({...s,done:clamp(+s.done||0,0,3000),total:clamp(+s.total||0,0,3000),score:clamp(+s.score||0,0,10),status:STATUS[s.status]?s.status:'en_cours',id:s.id||uid()}));
+// remet chaque série d'aplomb ; pour les mangas, on possède toujours au moins les tomes lus
+function normalize(d){
+  const out={};
+  for(const k of ['manga','anime'])out[k]=(Array.isArray(d&&d[k])?d[k]:[]).filter(s=>s&&typeof s.title==='string'&&s.title.trim()).map(s=>{
+    const n={...s,title:s.title.slice(0,200),done:clamp(+s.done||0,0,3000),total:clamp(+s.total||0,0,3000),score:clamp(+s.score||0,0,10),status:STATUS[s.status]?s.status:'en_cours',id:typeof s.id==='string'&&/^[\w-]{1,40}$/.test(s.id)?s.id:uid()};
+    if(k==='manga')n.owned=Math.max(clamp(+s.owned||0,0,3000),n.done);else delete n.owned;
+    return n});
+  return out;
+}
+const state=normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
+const fixOwned=s=>{if(tab==='manga')s.owned=Math.max(clamp(+s.owned||0,0,3000),s.done)};
 let tab='manga', sortBy='titre';
 
 /* ---------- couleurs ---------- */
@@ -256,12 +265,13 @@ let recs=[], inst=[], layout={W:8,H:9,mods:1,OW:7.88,centers:[3.94]};
 const proxies=new Map(); let selKey=null, hovKey=null;
 const cam={x:4,y:4,d:12,tx:4,ty:4,td:12,fitD:12};
 const par={x:0,y:0,tx:0,ty:0};
+const READ_C=new THREE.Color(1,1,1),UNREAD_C=new THREE.Color(.11,.115,.14);
 const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),V=new THREE.Vector3(),ONE=new THREE.Vector3(1,1,1),Z=new THREE.Vector3(0,0,1);
 
 /* ---------- construction ---------- */
 // Meubles de taille fixe, côte à côte : quand l'un est plein, le suivant se remplit.
 const MOD_IW={manga:7.6,anime:7.6}, MOD_SIDE=.14, MOD_GAP=.75;
-function units(s){return tab==='manga'?s.done:Math.ceil(s.done/EPS)}
+function units(s){return tab==='manga'?Math.max(s.owned||0,s.done):Math.ceil(s.done/EPS)}
 function sorted(){
   const l=[...state[tab]];const byT=(a,b)=>a.title.localeCompare(b.title,'fr');
   if(sortBy==='note')l.sort((a,b)=>b.score-a.score||byT(a,b));
@@ -270,7 +280,7 @@ function sorted(){
   else l.sort(byT);return l;
 }
 function placeMatrix(p,hidden){Q.setFromAxisAngle(Z,p.rz);M.compose(V.set(p.x,hidden?-1000:p.y,p.z),Q,ONE);return M}
-function setInst(rec,idx,visible){if(!rec.mesh)return;rec.mesh.setMatrixAt(idx-1,placeMatrix(rec.pos[idx-1],!visible));rec.mesh.instanceMatrix.needsUpdate=true}
+function setInst(rec,idx,visible){if(!rec.mesh)return;invalidate();rec.mesh.setMatrixAt(idx-1,placeMatrix(rec.pos[idx-1],!visible));rec.mesh.instanceMatrix.needsUpdate=true}
 function disposeShelf(){
   for(const m of proxies.values())releaseProxy(m,true);proxies.clear();selKey=null;hovKey=null;
   const mats=new Set(),geos=new Set(),texs=new Set();
@@ -324,7 +334,7 @@ function build(keep){
     // tomes : une série = un bloc instancié, seuls les tomes lus sont rangés
     const byS=new Map();
     for(const q of pos){let a=byS.get(q.s.id);if(!a){a=[];byS.set(q.s.id,a)}
-      const r=rng(hash(q.s.id)+q.i*31);a.push({x:q.x,y:baseY(q.row)+T.h/2,z:(r()-.5)*.035,rz:(r()-.5)*.012,mod:q.mod})}
+      const r=rng(hash(q.s.id)+q.i*31);a.push({x:q.x,y:baseY(q.row)+T.h/2,z:(r()-.5)*.035-(tab==='manga'&&q.i>=q.s.done?.14:0),rz:(r()-.5)*.012,mod:q.mod})}
     const box=new THREE.Vector4(6/T.cw,1-6/T.cw,12/512,(12+T.bh)/512);
     for(const s of plan){
       const P=byS.get(s.id);if(!P)continue;
@@ -335,6 +345,8 @@ function build(keep){
       const spine=mat({map,roughness:T.rough},{num:{box,color:dcol}});rec.spines.push(spine);
       const im=new THREE.InstancedMesh(instGeo(mergedGeo[tab],P.map((_,i)=>i+1)),[rec.body,PAGES[tab],spine],P.length);
       P.forEach((q,i)=>im.setMatrixAt(i,placeMatrix(q,false)));im.instanceMatrix.needsUpdate=true;
+      // mangas : les tomes possédés mais pas encore lus restent dans l'ombre
+      if(tab==='manga'){P.forEach((q,i)=>im.setColorAt(i,i<s.done?READ_C:UNREAD_C));im.instanceColor.needsUpdate=true}
       const bb=new THREE.Box3();P.forEach(q=>bb.expandByPoint(V.set(q.x,q.y,0)));
       const big=new THREE.Sphere();bb.getBoundingSphere(big);big.radius+=1.3;const one=mergedGeo[tab].boundingSphere;
       im.geometry.boundingSphere=big;
@@ -352,7 +364,7 @@ function build(keep){
 
 function bodyColor(pal,tpl){return tpl.kind==='band'?lin('#ebe7de'):tpl.kind==='dark'?lin('#17181d'):pal.three}
 // une couverture de série vient d'arriver : on repeint la série sans reconstruire l'étagère
-function restyle(rec){
+function restyle(rec){invalidate();
   const st=styleFor(rec.s);if(st.tpl.kind!=='art'||rec.art)return;
   rec.pal=st.pal;rec.tpl=st.tpl;rec.art=true;
   const map=spineTexture(rec.s,st.pal,st.tpl,0);
@@ -377,14 +389,14 @@ function releaseProxy(m,skipRestore){
 }
 // couvertures possibles d'un tome, de la meilleure à la plus générique
 function coverWants(s,idx){return[tab==='manga'?volUrl(s,idx,512):null,s.al&&s.al.coverXL,s.al&&s.al.cover].filter(Boolean)}
-function addCover(m){const u=m.userData;if(u.cover)return;
+function addCover(m){const u=m.userData;if(u.cover)return;invalidate();
   const r=coverTexture(u.rec.s,u.rec.pal,u.rec.tpl,u.idx);u.coverRank=r.rank;
   u.cover=mat({map:r.tex,roughness:tab==='anime'?.18:.4});
   m.material=[u.cover,...m.material.slice(1)]}
-function removeCover(m){const u=m.userData;if(!u.cover)return;m.material=[m.material[1],...m.material.slice(1)];u.cover.map.dispose();u.cover.dispose();u.cover=null}
+function removeCover(m){const u=m.userData;if(!u.cover)return;invalidate();m.material=[m.material[1],...m.material.slice(1)];u.cover.map.dispose();u.cover.dispose();u.cover=null}
 const deg=THREE.MathUtils.degToRad;
 function selectUnit(rec,idx,move,instant){
-  const key=rec.s.id+':'+idx;
+  invalidate();const key=rec.s.id+':'+idx;
   if(selKey&&selKey!==key){const o=proxies.get(selKey);if(o){o.userData.tp=0;removeCover(o)}}
   const m=getProxy(rec,idx);m.userData.tp=1;selKey=key;panelSid=rec.s.id;addCover(m);
   if(instant){m.userData.pull=1;m.userData.hover=0}
@@ -394,9 +406,9 @@ function selectUnit(rec,idx,move,instant){
     cam.tx=m.userData.base.x+(narrow?0:v.w*.18);cam.ty=m.userData.base.y+.2-(narrow?v.h*.2:0);clampCam()}
   renderPanel();mdCovers(rec.s);
 }
-function openPanel(s){if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=s.id;renderPanel();mdCovers(s)}
-function closePanel(){if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=null;$('#panel').hidden=true}
-function setHover(hit){
+function openPanel(s){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=s.id;renderPanel();mdCovers(s)}
+function closePanel(){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=null;$('#panel').hidden=true}
+function setHover(hit){invalidate();
   const key=hit?hit.rec.s.id+':'+hit.idx:null;if(key===hovKey)return;
   if(hovKey){const o=proxies.get(hovKey);if(o)o.userData.th=0}
   hovKey=key;if(hit)getProxy(hit.rec,hit.idx).userData.th=1;
@@ -412,7 +424,7 @@ function fitCamera(keep){
     cam.tx=narrow?layout.centers[0]-layout.OW/2+v.w/2:layout.centers[0];cam.ty=narrow?H-v.h/2:H/2;clampCam();cam.x=cam.tx;cam.y=cam.ty;cam.d=cam.td}
   clampCam();
 }
-function clampCam(){const {W,H}=layout;cam.td=clamp(cam.td,2.2,Math.max(cam.fitD*1.15,modFitD()*1.05));const v=vis(cam.td);
+function clampCam(){invalidate();const {W,H}=layout;cam.td=clamp(cam.td,2.2,Math.max(cam.fitD*1.15,modFitD()*1.05));const v=vis(cam.td);
   cam.tx=v.w>=W?W/2:clamp(cam.tx,v.w*.35,W-v.w*.35);cam.ty=v.h>=H?H/2:clamp(cam.ty,v.h*.4,H-v.h*.4)}
 let SW=1,SH=1;
 function resize(){const r=stage.getBoundingClientRect();SW=Math.max(1,r.width);SH=Math.max(1,r.height);renderer.setSize(SW,SH,false);camera.aspect=SW/SH;camera.updateProjectionMatrix();clampCam()}
@@ -441,7 +453,7 @@ canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);
   else{down={x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY};dragging=false}});
 canvas.addEventListener('pointermove',e=>{
   const r=canvas.getBoundingClientRect();
-  if(e.pointerType==='mouse'){par.tx=((e.clientX-r.left)/r.width)*2-1;par.ty=((e.clientY-r.top)/r.height)*2-1}
+  if(e.pointerType==='mouse'){par.tx=((e.clientX-r.left)/r.width)*2-1;par.ty=((e.clientY-r.top)/r.height)*2-1;invalidate()}
   if(pointers.has(e.pointerId))pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pointers.size===2){const [a,b]=[...pointers.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(pinch0>0&&d>0){cam.td=d0*pinch0/d;clampCam()}return}
   if(down){const dx=e.clientX-down.lx,dy=e.clientY-down.ly;
@@ -457,7 +469,7 @@ function endPointer(e){
     down=null;dragging=false;pinch0=0;canvas.classList.remove('dragging')}
 }
 canvas.addEventListener('pointerup',endPointer);canvas.addEventListener('pointercancel',endPointer);
-canvas.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){setHover(null);par.tx=0;par.ty=0}});
+canvas.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'){setHover(null);par.tx=0;par.ty=0;invalidate()}});
 canvas.addEventListener('wheel',e=>{e.preventDefault();
   if(e.ctrlKey)cam.td*=1+e.deltaY*.01;else{const dx=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;cam.tx+=dx*vis(cam.d).w*.0012}
   clampCam()},{passive:false});
@@ -483,9 +495,10 @@ function renderPanel(){
   const p=$('#panel');const s=panelSid&&findSeries(panelSid);if(!s){p.hidden=true;return}
   const m=selKey&&proxies.get(selKey),idx=m?m.userData.idx:null,rec=recs.find(r=>r.s.id===s.id);
   const T=TYPE[tab],man=tab==='manga',unitLbl=man?'Tomes':'Épisodes';
-  const kind=idx?(man?`Tome ${idx}`:`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${Math.min(idx*EPS,s.done)}`):(s.done?'Série':(man?"Aucun tome sur l'étagère":'Aucun épisode vu'));
+  const kind=idx?(man?`Tome ${idx}${idx>s.done?' · pas encore lu':''}`:`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${Math.min(idx*EPS,s.done)}`):(s.done?'Série':(man?"Aucun tome sur l'étagère":'Aucun épisode vu'));
   const pct=s.total>0?Math.round(Math.min(1,s.done/s.total)*100):null;
-  const full=s.total>0&&s.done>=s.total;
+  const full=s.total>0&&s.done>=s.total,owned=man?Math.max(s.owned||0,s.done):0,missing=man&&s.total>owned?s.total-owned:0;
+  const shop=missing?`<p class="note shop">À acheter : ${missing>1?`tomes ${owned+1} à ${s.total}`:`tome ${s.total}`} (${missing} tome${missing>1?'s':''})</p>`:'';
   let src='';
   if(man&&s.done){src=s.md?(idx&&!volUrl(s,idx,256)?"Pas de couverture pour ce tome sur MangaDex : celle de la série est affichée.":'Couvertures des tomes : MangaDex'):
     mdBusy.has(s.id)?'Recherche des couvertures des tomes…':s.mdMiss?'Couvertures des tomes introuvables sur MangaDex : celle de la série est affichée.':''}
@@ -498,7 +511,8 @@ function renderPanel(){
       ${s.score?`<span class="pill" style="background:var(--ink);color:var(--surface)">${s.score}/10</span>`:''}
       ${s.example?'<span class="pill ex">Exemple</span>':''}${s.estimated?'<span class="pill ex">Tomes estimés</span>':''}</div>
     <div class="prog"><div class="prog-bar"><span style="width:${pct??100}%;${pct===null?'opacity:.35':''}"></span></div>
-      <small>${s.done} ${unitLbl.toLowerCase()} ${T.verb}${s.total?` sur ${s.total}`:' · série en cours de parution'}</small></div>
+      <small>${s.done} ${unitLbl.toLowerCase()} ${T.verb}${man&&owned>s.done?` · ${owned} possédés`:''}${s.total?` sur ${s.total}`:' · série en cours de parution'}</small></div>
+    ${shop}
     ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''}>‹ Précédent</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''}>Suivant ›</button></div>`:''}
     ${strip}
     ${src?`<p class="note">${src}</p>`:''}
@@ -506,10 +520,12 @@ function renderPanel(){
       <label class="f">Statut<select id="p-status">${opts(s.status)}</select></label>
       <label class="f">Note /10<select id="p-score">${scoreOpts(s.score)}</select></label>
       <label class="f">${unitLbl} ${T.verb}<input id="p-done" type="number" min="0" max="3000" value="${s.done}"></label>
-      <label class="f">${unitLbl} ${man?'parus':'au total'}<input id="p-total" type="number" min="0" max="3000" value="${s.total}"></label>
+      ${man?`<label class="f">Tomes possédés<input id="p-owned" type="number" min="0" max="3000" value="${owned}"></label>`:''}
+      <label class="f">${unitLbl} ${man?'parus':'au total'}<input id="p-total" type="number" min="0" max="3000" value="${s.total||''}" placeholder="${man?'en cours':'?'}"></label>
     </div>
     <div class="row">
       ${full?'':`<button class="btn primary" id="p-plus">${man?`J'ai lu le tome ${s.done+1}`:`J'ai vu l'épisode ${s.done+1}`}</button>`}
+      ${man&&!(s.total&&owned>=s.total)?`<button class="btn" id="p-buy">J'ai acheté le tome ${owned+1}</button>`:''}
       <button class="btn danger" id="p-del">Retirer</button>
     </div>
     ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}
@@ -517,13 +533,15 @@ function renderPanel(){
   p.hidden=false;
   $('#p-close').onclick=closePanel;
   // après un changement, on reconstruit ; « last » sort le dernier tome rangé
-  const upd=(fn,last)=>{fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;save();build(true);
-    if(last){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,r.count,true,false);else{panelSid=s.id;renderPanel()}}};
+  const upd=(fn,pick)=>{fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;fixOwned(s);save();build(true);
+    if(pick){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,clamp(typeof pick==='function'?pick(s):r.count,1,r.count),true,false);else{panelSid=s.id;renderPanel()}}};
   $('#p-status').onchange=e=>upd(s=>s.status=e.target.value);
   $('#p-score').onchange=e=>upd(s=>s.score=+e.target.value);
-  $('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},true);
+  $('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},s=>s.done);
+  const po=$('#p-owned');if(po)po.onchange=e=>{const v=clamp(+e.target.value||0,0,3000);if(v<s.done)toast(`Tu as lu ${s.done} tomes : ils restent sur l'étagère.`);upd(s=>s.owned=v,true)};
+  const pb=$('#p-buy');if(pb)pb.onclick=()=>upd(s=>s.owned=Math.min(3000,Math.max(s.owned||0,s.done)+1),true);
   $('#p-total').onchange=e=>upd(s=>s.total=clamp(+e.target.value||0,0,3000));
-  const plus=$('#p-plus');if(plus)plus.onclick=()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},true);
+  const plus=$('#p-plus');if(plus)plus.onclick=()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},s=>s.done);
   const pv=$('#p-prev'),nx=$('#p-next');
   if(pv)pv.onclick=()=>selectUnit(rec,idx-1,true,false);if(nx)nx.onclick=()=>selectUnit(rec,idx+1,true,false);
   const vols=$('#p-vols');
@@ -541,23 +559,45 @@ function renderList(){
   const box=$('#l-items');
   box.innerHTML=items.length?items.slice(0,500).map(s=>{const n=s.done;
     const th=s.al&&s.al.cover?`<img alt="" loading="lazy" src="${viaProxy(s.al.cover)}">`:'<span class="ph"></span>';
-    const cnt=man?(n?`${n} tome${n>1?'s':''}`:'aucun tome rangé'):(n?`${n} épisode${n>1?'s':''}`:'aucun épisode vu');
+    const o=man?Math.max(s.owned||0,n):0,miss=man&&s.total>o?s.total-o:0;
+    const cnt=man?(o?`${n} lu${n>1?'s':''} · ${o} possédé${o>1?'s':''}${miss?` · ${miss} à acheter`:''}`:'aucun tome rangé'):(n?`${n} épisode${n>1?'s':''}`:'aucun épisode vu');
     return `<button type="button" class="al-item" data-id="${s.id}">${th}<span><b>${esc(s.title)}</b><small><i class="dot" style="background:${STATUS[s.status].c}"></i>${stLbl(s.status)} · ${cnt}</small></span></button>`}).join('')
     :'<p class="al-empty">Aucune série ne correspond à cette recherche.</p>';
   box.querySelectorAll('.al-item').forEach(b=>b.onclick=()=>{const s=findSeries(b.dataset.id);if(!s)return;closeModal('#ov-list');
     const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,rec.count,true,false);else openPanel(s)});
 }
-$('#btn-list').onclick=()=>{$('#l-q').value='';$('#l-t').textContent=tab==='manga'?'Mes mangas':'Mes animes';renderList();openModal('#ov-list')};
+$('#btn-list').onclick=()=>{$('#l-q').value='';$('#bk-confirm').innerHTML='';$('#l-t').textContent=tab==='manga'?'Mes mangas':'Mes animes';renderList();openModal('#ov-list')};
 $('#l-q').addEventListener('input',renderList);
 $('#l-close').onclick=()=>closeModal('#ov-list');
+
+/* ---------- sauvegarde : télécharger / restaurer la bibliothèque ---------- */
+const count=d=>d.manga.length+d.anime.length;
+$('#bk-export').onclick=()=>{
+  const d=new Date(),day=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const blob=new Blob([JSON.stringify({app:'hondana',version:1,exported:d.toISOString(),manga:state.manga,anime:state.anime},null,1)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`hondana-${day}.json`;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast(`Sauvegarde téléchargée : ${count(state)} séries.`)};
+$('#bk-import').onclick=()=>$('#bk-file').click();
+$('#bk-file').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;const box=$('#bk-confirm');
+  let d;
+  try{const raw=JSON.parse(await readText(f));if(!raw||(!Array.isArray(raw.manga)&&!Array.isArray(raw.anime)))throw 0;d=normalize(raw)}
+  catch(_){box.innerHTML='<p class="err">Ce fichier n\'est pas une sauvegarde Hondana.</p>';return}
+  if(!count(d)){box.innerHTML='<p class="err">Cette sauvegarde ne contient aucune série.</p>';return}
+  const mine=state.manga.concat(state.anime).filter(s=>!s.example).length;
+  const apply=()=>{state.manga=d.manga;state.anime=d.anime;save();box.innerHTML='';closeModal('#ov-list');closePanel();
+    tab=d.manga.length||!d.anime.length?'manga':'anime';build(false);progress();enrich();toast(`Bibliothèque restaurée : ${d.manga.length} mangas et ${d.anime.length} animes.`)};
+  if(!mine)return apply();
+  box.innerHTML=`<div class="confirm"><span>Remplacer ${mine>1?`tes ${mine} séries`:'ta série'} par ${count(d)>1?`les ${count(d)} séries`:'la série'} de la sauvegarde ?</span><div class="row"><button class="btn danger" id="bk-ok">Remplacer</button><button class="btn" id="bk-no">Annuler</button></div></div>`;
+  $('#bk-ok').onclick=apply;$('#bk-no').onclick=()=>box.innerHTML=''};
 
 /* ---------- en-tête ---------- */
 function updateHeader(){
   document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
-  const l=state[tab];const done=l.reduce((a,s)=>a+s.done,0);
-  $('#stats').innerHTML=`<b>${l.length}</b> séries · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?'tomes lus':'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
+  const l=state[tab];const done=l.reduce((a,s)=>a+s.done,0),own=tab==='manga'?l.reduce((a,s)=>a+Math.max(s.owned||0,s.done),0):0;
+  $('#stats').innerHTML=`<b>${l.length}</b> séries · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?`tomes lus · <b>${own.toLocaleString('fr-FR')}</b> possédés`:'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
   $('#banner').hidden=!l.some(s=>s.example);
-  $('#legend').innerHTML=ORDER.map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${stLbl(k)}</span>`).join('');
+  $('#legend').innerHTML=ORDER.map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${stLbl(k)}</span>`).join('')+(tab==='manga'?'<span><i style="background:#3a3c44"></i>Pas encore lu</span>':'');
   modTxt='';
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(tab===b.dataset.tab)return;closePanel();tab=b.dataset.tab;build(false);progress()});
@@ -573,12 +613,12 @@ $('#imp-close').onclick=()=>closeModal('#ov-import');
 $('#btn-add').onclick=()=>{
   $('#add-form').reset();
   $('#add-t').textContent=tab==='anime'?'Ajouter un anime':'Ajouter un manga';
-  $('#a-done-l').textContent=tab==='anime'?'Épisodes vus':'Tomes lus';$('#a-total-l').textContent=tab==='anime'?'Épisodes au total':'Tomes parus';
+  $('#a-done-l').textContent=tab==='anime'?'Épisodes vus':'Tomes lus';$('#a-owned-f').hidden=tab==='anime';$('#a-total-l').textContent=tab==='anime'?'Épisodes au total':'Tomes parus';
   $('#a-status').innerHTML=opts('en_cours');$('#a-score').innerHTML=scoreOpts(0);alPick=null;renderResults(null);$('#a-picked').hidden=true;openModal('#ov-add')};
 $('#add-close').onclick=()=>closeModal('#ov-add');
 $('#add-form').onsubmit=e=>{e.preventDefault();
   const s={id:uid(),title:$('#a-title').value.trim().slice(0,80),done:clamp(+$('#a-done').value||0,0,3000),total:clamp(+$('#a-total').value||0,0,3000),status:$('#a-status').value,score:+$('#a-score').value};
-  if(!s.title)return;if(alPick)applyAl(s,tab,alPick);if(s.status==='termine'&&s.total)s.done=s.total;
+  if(!s.title)return;if(tab==='manga')s.owned=+$('#a-owned').value||0;if(alPick)applyAl(s,tab,alPick);if(s.status==='termine'&&s.total)s.done=s.total;fixOwned(s);
   state[tab].push(s);save();closeModal('#ov-add');build(true);
   const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,rec.count,true,false);else openPanel(s);
   toast(rec?`« ${s.title} » rangé sur l'étagère`:`« ${s.title} » ajouté à tes séries : ses tomes apparaîtront dès que tu en auras lu un.`);if(!s.al)enrich()};
@@ -615,8 +655,8 @@ async function importFile(file){
   try{
     const res=parseMAL(await readText(file));const msg=[];
     for(const k of ['manga','anime']){if(!res[k].length)continue;
-      const keep=state[k].filter(s=>!s.example);const byT=new Map(keep.map(s=>[s.title.toLowerCase(),s]));
-      for(const s of res[k]){const ex=byT.get(s.title.toLowerCase());if(ex){if(s.malId&&ex.malId!==s.malId){delete ex.al;delete ex.alMiss}Object.assign(ex,{done:s.done,total:s.total,status:s.status,score:s.score,estimated:s.estimated,malId:s.malId||ex.malId})}else{keep.push(s);byT.set(s.title.toLowerCase(),s)}}
+      const keep=state[k].filter(s=>!s.example);const byT=new Map(keep.map(s=>[s.title.toLowerCase(),s])),byM=new Map(keep.filter(s=>s.malId).map(s=>[s.malId,s]));
+      for(const s of res[k]){if(k==='manga')s.owned=s.done;const ex=(s.malId&&byM.get(s.malId))||byT.get(s.title.toLowerCase());if(ex){if(s.malId&&ex.malId!==s.malId){delete ex.al;delete ex.alMiss}Object.assign(ex,{done:s.done,total:s.total,status:s.status,score:s.score,estimated:s.estimated,malId:s.malId||ex.malId});if(k==='manga')ex.owned=Math.max(ex.owned||0,ex.done)}else{keep.push(s);byT.set(s.title.toLowerCase(),s)}}
       state[k]=keep;msg.push(`${res[k].length} ${k==='manga'?'mangas':'animes'}`);tab=k}
     save();closeModal('#ov-import');closePanel();build(false);toast(`Import réussi : ${msg.join(' et ')}. Les couvertures arrivent au fur et à mesure.`);enrich();
   }catch(e){err.textContent=e.message||"Le fichier n'a pas pu être lu.";err.hidden=false}
@@ -658,6 +698,7 @@ function applyAl(s,kind,m){
   const t=kind==='manga'?s.al.volumes:s.al.episodes;
   if(!s.total&&t>0)s.total=Math.min(3000,t);
   if(s.status==='termine'&&s.total)s.done=s.total;
+  if(kind==='manga')s.owned=Math.max(s.owned||0,s.done);
 }
 let enriching=false,restyleTimer=0;
 function pendingCount(kind){return state[kind].filter(s=>!s.al&&!s.alMiss).length}
@@ -787,11 +828,14 @@ function afterMd(s){
 }
 
 /* ---------- boucle ---------- */
+// l'image n'est recalculée que si quelque chose bouge : sinon le navigateur se repose (batterie)
+let raf=0;
+function invalidate(){if(!raf)raf=requestAnimationFrame(frame)}
+const ease=(o,a,b,k)=>{const d=o[b]-o[a];if(Math.abs(d)<1e-4){o[a]=o[b];return false}o[a]+=d*k;return true};
 function frame(){
-  requestAnimationFrame(frame);
+  raf=0;
   const k=reduce?1:.12;
-  cam.x+=(cam.tx-cam.x)*k;cam.y+=(cam.ty-cam.y)*k;cam.d+=(cam.td-cam.d)*k;
-  par.x+=(par.tx-par.x)*.06;par.y+=(par.ty-par.y)*.06;
+  let moving=ease(cam,'x','tx',k)|ease(cam,'y','ty',k)|ease(cam,'d','td',k)|ease(par,'x','tx',.06)|ease(par,'y','ty',.06);
   const pf=reduce?0:cam.d/7;
   camera.position.set(cam.x+par.x*.9*pf,cam.y-par.y*.5*pf,cam.d);camera.lookAt(cam.x,cam.y,0);
   // la lumière principale suit la zone regardée pour garder des ombres nettes
@@ -801,14 +845,16 @@ function frame(){
   for(const m of [...proxies.values()]){const u=m.userData;
     u.pull+=(u.tp-u.pull)*(reduce?1:.14);u.hover+=(u.th-u.hover)*(reduce?1:.2);
     if(Math.abs(u.pull-u.tp)<.003)u.pull=u.tp;if(Math.abs(u.hover-u.th)<.003)u.hover=u.th;
+    if(u.pull!==u.tp||u.hover!==u.th)moving=true;
     if(u.tp===0&&u.th===0&&u.pull===0&&u.hover===0){releaseProxy(m);continue}
     m.position.set(u.base.x,u.base.y+u.pull*.28,u.base.z+u.hover*.16+u.pull*1.4);
     m.rotation.set(0,-u.pull*(Math.PI/2-.3),u.base.rz*(1-u.pull));m.scale.setScalar(1+u.pull*.18)}
   updModLabel();
   renderer.render(scene,camera);
+  if(moving)invalidate();
 }
 try{await Promise.race([document.fonts.ready,new Promise(r=>setTimeout(r,2500))])}catch(e){}
-resize();build(false);frame();
+resize();build(false);invalidate();
 // les couvertures déjà connues sont chargées, les autres sont demandées à AniList
 recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});enrich();
 })();

@@ -138,5 +138,8 @@ label.f input,label.f select{border:1px solid var(--line);background:var(--bg);b
 .vol span{position:absolute;right:2px;bottom:2px;font-family:var(--font-mono);font-size:10.5px;line-height:1.5;background:rgba(12,13,17,.78);color:#fff;padding:0 4px;border-radius:4px}
 .vol.cur{outline:2px solid var(--accent);outline-offset:1px}
 .al-results.list{max-height:min(52vh,420px)}
+.note.shop{color:var(--ink);font-weight:500}
+.backup{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
+.backup b{font-weight:700;font-size:14px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
 @media (max-width:720px){.credit{top:auto;bottom:max(68px,env(safe-area-inset-bottom,0px));right:max(16px,env(safe-area-inset-right,0px))}.mod-label{padding:0 9px;font-size:12px}}
