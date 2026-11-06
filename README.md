@@ -8,6 +8,7 @@ Bibliothèque 3D de mangas et d'animes : chaque tome lu apparaît sur une étag�
 - Seuls les tomes lus sont rangés (un objet par tome, ou par coffret de 12 épisodes pour les animes). Les séries sans tome restent accessibles depuis « Séries ».
 - Note sur 10, statut (en cours, terminé, en pause, à lire, abandonné) et progression pour chaque série.
 - Import de la liste MyAnimeList (fichier d'export `.xml` ou `.xml.gz`).
+- Onglet Jeux : un boîtier par jeu selon la plateforme (Switch, PlayStation, Xbox, PC), jaquettes [IGDB](https://www.igdb.com), import de la ludothèque Steam, statuts joueur (dont 100 % / Platiné).
 - Couverture de chaque série et nombre de tomes récupérés sur [AniList](https://anilist.co).
 - Couverture de chaque tome récupérée sur [MangaDex](https://mangadex.org) quand on sort un tome de l'étagère.
 - Mangas : tomes lus et tomes possédés sont suivis séparément. Les tomes possédés mais pas encore lus sont rangés en retrait, dans l'ombre, et la fiche d'une série indique les tomes qui restent à acheter.
@@ -31,6 +32,8 @@ Bibliothèque 3D de mangas et d'animes : chaque tome lu apparaît sur une étag�
 | `vendor/supabase.js` | Bibliothèque Supabase (comptes et base de données) |
 | `supabase/schema.sql` | Tables et règles d'accès à créer dans Supabase |
 | `vercel.json` | Redirige `/u/pseudo` vers la page |
+| `api/igdb.js` | Relais vers IGDB (variables Vercel `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`) |
+| `api/steam.js` | Ludothèque Steam d'un profil public (variable Vercel `STEAM_API_KEY`) |
 | `api/mangadex.js` | Relais vers l'API MangaDex (obligatoire : MangaDex refuse les appels directs depuis un autre site) |
 
 ## Mise en ligne

@@ -18,6 +18,7 @@
     <div class="tabs" role="tablist">
       <button id="tab-manga" role="tab" aria-selected="true" data-tab="manga">Mangas</button>
       <button id="tab-anime" role="tab" aria-selected="false" data-tab="anime">Animes</button>
+      <button id="tab-game" role="tab" aria-selected="false" data-tab="game">Jeux</button>
     </div>
     <div class="stats"><span id="stats"></span> <span id="al-progress" hidden></span></div>
     <div class="actions">
@@ -46,7 +47,7 @@
       <button id="b-in" aria-label="Zoomer">+</button>
     </div>
     <div class="legend" id="legend"></div>
-    <div class="credit">Couvertures : <a href="https://anilist.co" target="_blank" rel="noopener">AniList</a> · <a href="https://mangadex.org" target="_blank" rel="noopener">MangaDex</a></div>
+    <div class="credit">Couvertures : <a href="https://anilist.co" target="_blank" rel="noopener">AniList</a> · <a href="https://mangadex.org" target="_blank" rel="noopener">MangaDex</a> · <a href="https://www.igdb.com" target="_blank" rel="noopener">IGDB</a></div>
     <aside class="panel" id="panel" hidden aria-live="polite"></aside>
     <div class="lost" id="lost" hidden><p>L'affichage 3D s'est interrompu.</p><button class="btn primary" onclick="location.reload()">Recharger l'étagère</button></div>
   </div>
@@ -69,6 +70,19 @@
   </div>
 </div>
 
+<div class="overlay" id="ov-steam" hidden>
+  <form class="modal" id="st-form" role="dialog" aria-modal="true" aria-labelledby="st-t" novalidate>
+    <h2 id="st-t">Importer ta ludothèque Steam</h2>
+    <ol>
+      <li>Sur Steam, vérifie que tes jeux sont visibles : Profil → Modifier le profil → Confidentialité → « Détails des jeux : Public ».</li>
+      <li>Colle l'adresse de ton profil, ou ton identifiant Steam.</li>
+    </ol>
+    <label class="f">Profil Steam<input id="st-profile" placeholder="https://steamcommunity.com/id/ton-pseudo" autocomplete="off"></label>
+    <p class="err" id="st-err" hidden></p>
+    <p class="note">Les jeux sont rangés en PC avec ton temps de jeu. Ceux jamais lancés sont classés « À jouer ». Les jaquettes viennent d'<a href="https://www.igdb.com" target="_blank" rel="noopener">IGDB</a>.</p>
+    <div class="row"><button class="btn primary" type="submit" id="st-go">Importer</button><button class="btn" type="button" id="st-close">Fermer</button></div>
+  </form>
+</div>
 <div class="overlay" id="ov-add" hidden>
   <form class="modal" id="add-form" role="dialog" aria-modal="true" aria-labelledby="add-t">
     <h2 id="add-t">Ajouter une série</h2>
@@ -79,11 +93,12 @@
       <label class="f"><span id="a-done-l">Tomes lus</span><input id="a-done" type="number" min="0" max="3000" value="1"></label>
       <label class="f" id="a-owned-f">Tomes possédés<input id="a-owned" type="number" min="0" max="3000" placeholder="autant que lus"></label>
       <label class="f"><span id="a-total-l">Tomes parus</span><input id="a-total" type="number" min="0" max="3000" value="0"></label>
+      <label class="f" id="a-platform-f" hidden>Plateforme<select id="a-platform"></select></label>
       <label class="f">Statut<select id="a-status"></select></label>
       <label class="f">Note /10<select id="a-score"></select></label>
     </div>
-    <p class="note">Mets 0 en « parus » pour une série encore en cours de parution.</p>
-    <div class="row"><button class="btn primary" type="submit">Ranger sur l'étagère</button><button class="btn" type="button" id="add-close">Annuler</button></div>
+    <p class="note" id="a-total-note">Mets 0 en « parus » pour une série encore en cours de parution.</p>
+    <div class="row"><button class="btn primary" type="submit" id="a-submit">Ranger sur l'étagère</button><button class="btn" type="button" id="add-close">Annuler</button></div>
   </form>
 </div>
 <div class="overlay" id="ov-list" hidden>

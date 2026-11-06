@@ -15,12 +15,12 @@ create table if not exists public.profiles (
 create table if not exists public.series (
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   id text not null check (char_length(id) between 1 and 40),
-  kind text not null check (kind in ('manga', 'anime')),
+  kind text not null check (kind in ('manga', 'anime', 'game')),
   title text not null check (char_length(title) between 1 and 200),
   done integer not null default 0 check (done between 0 and 3000),
   owned integer not null default 0 check (owned between 0 and 3000),
   total integer not null default 0 check (total between 0 and 3000),
-  status text not null default 'en_cours' check (status in ('en_cours', 'termine', 'pause', 'a_lire', 'abandonne')),
+  status text not null default 'en_cours' check (status in ('en_cours', 'termine', 'pause', 'a_lire', 'abandonne', 'cent')),
   score integer not null default 0 check (score between 0 and 10),
   mal_id integer,
   extra jsonb not null default '{}'::jsonb check (pg_column_size(extra) < 60000),
@@ -29,6 +29,11 @@ create table if not exists public.series (
 );
 -- ajout de la colonne sur une base créée avant les tomes possédés
 alter table public.series add column if not exists owned integer not null default 0 check (owned between 0 and 3000);
+-- mise à jour d'une base créée avant l'onglet Jeux
+alter table public.series drop constraint if exists series_kind_check;
+alter table public.series add constraint series_kind_check check (kind in ('manga', 'anime', 'game'));
+alter table public.series drop constraint if exists series_status_check;
+alter table public.series add constraint series_status_check check (status in ('en_cours', 'termine', 'pause', 'a_lire', 'abandonne', 'cent'));
 create index if not exists series_user_kind on public.series (user_id, kind);
 
 -- Garde la date de mise à jour à jour.

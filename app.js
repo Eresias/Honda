@@ -4,10 +4,20 @@ const STATUS={
   en_cours:{m:'En cours',a:'En cours',c:'#3d7fd6'},
   termine:{m:'Terminé',a:'Terminé',c:'#3f9d6e'},
   pause:{m:'En pause',a:'En pause',c:'#c9902a'},
-  a_lire:{m:'À lire',a:'À voir',c:'#8a8fa3'},
-  abandonne:{m:'Abandonné',a:'Abandonné',c:'#b8524a'}
+  a_lire:{m:'À lire',a:'À voir',g:'À jouer',c:'#8a8fa3'},
+  abandonne:{m:'Abandonné',a:'Abandonné',c:'#b8524a'},
+  cent:{m:'100 %',a:'100 %',g:'100 % / Platiné',c:'#9b6cf0'}
 };
-const ORDER=Object.keys(STATUS);
+const ORDERS={manga:['en_cours','termine','pause','a_lire','abandonne'],anime:['en_cours','termine','pause','a_lire','abandonne'],game:['en_cours','termine','cent','pause','a_lire','abandonne']};
+const ord=()=>ORDERS[tab];
+// boîtiers génériques par famille de plateforme (tailles réelles approximatives, sans logos)
+const GAME_PF={
+  switch:{label:'Switch',short:'SWITCH',w:.11,h:1.7,d:1.05,cw:52,band:'#e4002b',body:'#c2121f'},
+  ps:{label:'PlayStation',short:'PS',w:.14,h:1.71,d:1.35,cw:64,band:'#0b5fd1',body:'#0a3f8f'},
+  xbox:{label:'Xbox',short:'XBOX',w:.14,h:1.9,d:1.35,cw:64,band:'#16a116',body:'#0d6b0d'},
+  pc:{label:'PC',short:'PC',w:.14,h:1.9,d:1.35,cw:64,band:'#3a3f4b',body:'#1c1e24'},
+  other:{label:'Autre',short:'JEU',w:.14,h:1.8,d:1.3,cw:64,band:'#6b6f7a',body:'#34363e'}
+};
 const EPS=12, KEY='hondana.v1'; // clé gardée telle quelle pour ne pas perdre les bibliothèques déjà enregistrées
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -21,7 +31,11 @@ const EXAMPLE={
     mk('Vinland Saga',14,14,'termine',9),mk('Chainsaw Man',12,0,'en_cours',8),mk('Spy x Family',5,0,'pause',7,7),
     mk('Death Note',12,12,'termine',8),mk('Monster',7,18,'en_cours',9,10),mk('Fullmetal Alchemist',27,27,'termine',10),mk('Blue Period',0,0,'a_lire',0,3)],
   anime:[mk('Frieren',28,28,'termine',10),mk('Cowboy Bebop',26,26,'termine',9),{...mk("L'Attaque des Titans",87,87,'termine',9),q:'Shingeki no Kyojin'},
-    mk('Jujutsu Kaisen',24,47,'en_cours',8),mk('Mob Psycho 100',37,37,'termine',9),mk('Dandadan',12,24,'en_cours',8),mk('Monster',0,74,'a_lire',0)]
+    mk('Jujutsu Kaisen',24,47,'en_cours',8),mk('Mob Psycho 100',37,37,'termine',9),mk('Dandadan',12,24,'en_cours',8),mk('Monster',0,74,'a_lire',0)],
+  game:[['The Legend of Zelda: Tears of the Kingdom','switch','termine',10],['Elden Ring','ps','cent',10],['Hollow Knight','pc','en_cours',9],
+    ['Final Fantasy VII Rebirth','ps','en_cours',9],['Hades','switch','termine',9],['Persona 5 Royal','ps','termine',10],["Baldur's Gate 3",'pc','pause',10],
+    ['Forza Horizon 5','xbox','a_lire',0],['Stardew Valley','pc','en_cours',8],['Metroid Dread','switch','termine',8],['Halo Infinite','xbox','abandonne',6]]
+    .map(([title,platform,status,score])=>({id:uid(),title,platform,status,score,done:0,total:0,example:true}))
 };
 function load(){try{const r=localStorage.getItem(KEY);if(r){const d=JSON.parse(r);if(d&&Array.isArray(d.manga)&&Array.isArray(d.anime))return d;}}catch(e){}return null}
 // enregistrement : dans le compte si on est connecté, sinon dans ce navigateur
@@ -30,9 +44,11 @@ function save(){if(viewing)return;if(acct.user){scheduleSync();return}
 // remet chaque série d'aplomb ; pour les mangas, on possède toujours au moins les tomes lus
 function normalize(d){
   const out={};
-  for(const k of ['manga','anime'])out[k]=(Array.isArray(d&&d[k])?d[k]:[]).filter(s=>s&&typeof s.title==='string'&&s.title.trim()).map(s=>{
+  for(const k of ['manga','anime','game'])out[k]=(Array.isArray(d&&d[k])?d[k]:[]).filter(s=>s&&typeof s.title==='string'&&s.title.trim()).map(s=>{
     const n={...s,title:s.title.slice(0,200),done:clamp(+s.done||0,0,3000),total:clamp(+s.total||0,0,3000),score:clamp(+s.score||0,0,10),status:STATUS[s.status]?s.status:'en_cours',id:typeof s.id==='string'&&/^[\w-]{1,40}$/.test(s.id)?s.id:uid()};
     if(k==='manga')n.owned=Math.max(clamp(+s.owned||0,0,3000),n.done);else delete n.owned;
+    if(k==='game'){n.platform=GAME_PF[s.platform]?s.platform:'other';n.hours=clamp(Math.round(+s.hours||0),0,100000);if(!ORDERS.game.includes(n.status))n.status='en_cours'}
+    else if(n.status==='cent')n.status='termine';
     return n});
   return out;
 }
@@ -42,7 +58,7 @@ const viewing=pm?{name:pm[1]}:null;
 // connecté sur cet appareil : on attend la bibliothèque du compte au lieu d'afficher les exemples
 const CFG0=window.MYWEEBRARY_CONFIG||{};
 let loadingAccount=!viewing&&!!(CFG0.supabaseUrl&&CFG0.supabaseKey)&&(()=>{try{for(let i=0;i<localStorage.length;i++)if(/^sb-.+-auth-token$/.test(localStorage.key(i)))return true}catch(e){}return false})();
-const state=viewing||loadingAccount?{manga:[],anime:[]}:normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
+const state=viewing||loadingAccount?{manga:[],anime:[],game:[]}:normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
 const fixOwned=s=>{if(tab==='manga')s.owned=Math.max(clamp(+s.owned||0,0,3000),s.done)};
 let tab='manga', sortBy='titre';
 
@@ -65,8 +81,9 @@ function template(s,pal){
   return{kind:'band',bg:'#ebe7de',title:shade(pal,.27,.05),box:pal.css,digit:'#ffffff',accent:pal.css};
 }
 const lin=hex=>new THREE.Color(hex).convertSRGBToLinear();
+function seriesCover(s){return(s.al&&s.al.cover)||(s.igdb&&s.igdb.cover&&igdbImg(s.igdb.cover,'t_cover_big'))||(s.steam&&steamImg(s.steam.appid))||null}
 function styleFor(s){
-  const img=s.al&&s.al.cover?coverImg(s.al.cover):null;
+  const cu=seriesCover(s),img=cu?coverImg(cu):null;
   const pal=palette(s.title,s.al&&s.al.color);
   if(img)return{pal,tpl:{kind:'art',img,bg:pal.css,title:pal.text,box:pal.text,digit:pal.css,accent:pal.text}};
   return{pal,tpl:template(s,pal)};
@@ -105,8 +122,10 @@ scene.add(key);scene.add(key.target);
 
 const TYPE={
   manga:{w:.15,h:1.75,d:1.13,cw:48,bh:46,rough:.55,verb:'lus'},
-  anime:{w:.26,h:1.7,d:1.32,cw:80,bh:54,rough:.22,verb:'vus'}
+  anime:{w:.26,h:1.7,d:1.32,cw:80,bh:54,rough:.22,verb:'vus'},
+  game:{w:.14,h:1.71,d:1.35,cw:64,bh:0,rough:.25,verb:'joués'}
 };
+const dimOf=s=>tab==='game'?{...TYPE.game,...(GAME_PF[s.platform]||GAME_PF.other)}:TYPE[tab];
 const ROWS=4, ROW_H=2.18, PLANK=.08;
 
 /* ---------- éclairage LED (sous chaque planche) + numéros peints par le shader ---------- */
@@ -164,8 +183,11 @@ function mergedBox(w,h,d){
   order.forEach((faces,mi)=>{let cnt=0;faces.forEach(f=>{for(let i=0;i<gr[f].count;i++)out.push(idx[gr[f].start+i]);cnt+=gr[f].count});g.addGroup(start,cnt,mi);start+=cnt});
   g.setIndex(out);g.computeBoundingSphere();return g;
 }
-const boxGeo={},mergedGeo={};
-for(const k in TYPE){boxGeo[k]=new THREE.BoxGeometry(TYPE[k].w,TYPE[k].h,TYPE[k].d);mergedGeo[k]=mergedBox(TYPE[k].w,TYPE[k].h,TYPE[k].d)}
+const boxGeo={},mergedGeo={},GEO=new Map(),KEEPGEO=new Set();
+for(const k in TYPE){boxGeo[k]=new THREE.BoxGeometry(TYPE[k].w,TYPE[k].h,TYPE[k].d);mergedGeo[k]=mergedBox(TYPE[k].w,TYPE[k].h,TYPE[k].d);KEEPGEO.add(boxGeo[k]).add(mergedGeo[k])}
+// géométries partagées par taille de boîtier
+function geoFor(d){const k=`${d.w},${d.h},${d.d}`;let g=GEO.get(k);
+  if(!g){g={box:new THREE.BoxGeometry(d.w,d.h,d.d),merged:mergedBox(d.w,d.h,d.d)};GEO.set(k,g);KEEPGEO.add(g.box).add(g.merged)}return g}
 function instGeo(base,nums){
   const g=new THREE.BufferGeometry();
   for(const n in base.attributes)g.setAttribute(n,base.attributes[n]);
@@ -183,11 +205,34 @@ const pagesTex={manga:(()=>{const[c,x]=canvas2d(64,128);x.fillStyle='#e6dfcf';x.
   for(let i=0;i<64;i+=1.3){x.fillStyle=`rgba(90,70,40,${.04+r()*.1})`;x.fillRect(i,0,.7,128)}
   const g=x.createLinearGradient(0,0,0,128);g.addColorStop(0,'rgba(0,0,0,.0)');g.addColorStop(.92,'rgba(0,0,0,.0)');g.addColorStop(1,'rgba(0,0,0,.18)');x.fillStyle=g;x.fillRect(0,0,64,128);return tex(c)})(),
   anime:(()=>{const[c,x]=canvas2d(64,128);x.fillStyle='#1c1e24';x.fillRect(0,0,64,128);x.fillStyle='rgba(255,255,255,.08)';x.fillRect(0,0,4,128);x.fillRect(60,0,4,128);return tex(c)})()};
+pagesTex.game=pagesTex.anime;
 const PAGES={},PAGES_G={};
-for(const k in TYPE){PAGES[k]=mat({color:0xffffff,map:pagesTex[k],roughness:k==='anime'?.3:.9});PAGES_G[k]=mat({color:0xffffff,map:pagesTex[k],roughness:.9},{ghost:true})}
+for(const k in TYPE){PAGES[k]=mat({color:0xffffff,map:pagesTex[k],roughness:k==='manga'?.9:.3});PAGES_G[k]=mat({color:0xffffff,map:pagesTex[k],roughness:.9},{ghost:true})}
 
+function gameSpine(s,pal,tpl,T){
+  const w=T.cw,h=512,[c,x]=canvas2d(w,h);
+  x.fillStyle=T.body;x.fillRect(0,0,w,h);
+  // bandeau de plateforme en haut, comme sur les boîtiers du commerce
+  x.fillStyle=T.band;x.fillRect(0,0,w,46);x.fillStyle='rgba(255,255,255,.18)';x.fillRect(0,46,w,2);
+  x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';let fs=17;x.font=`800 ${fs}px "IBM Plex Mono",monospace`;
+  while(x.measureText(T.short).width>w-8&&fs>9){fs--;x.font=`800 ${fs}px "IBM Plex Mono",monospace`}x.fillText(T.short,w/2,24);
+  let titleY=62;
+  if(tpl.kind==='art'){const img=tpl.img,artH=Math.round(h*.3),y0=50;
+    const cropH=img.naturalHeight*.5,cropW=Math.min(img.naturalWidth,cropH*(w/artH));
+    try{x.drawImage(img,(img.naturalWidth-cropW)/2,img.naturalHeight*.08,cropW,cropH,0,y0,w,artH)}catch(e){}
+    const f=x.createLinearGradient(0,y0+artH-50,0,y0+artH);f.addColorStop(0,'rgba(0,0,0,0)');f.addColorStop(1,T.body);x.fillStyle=f;x.fillRect(0,y0+artH-50,w,50);titleY=y0+artH+14}
+  const avail=h-titleY-50;fs=w>56?26:22;const F=n=>`700 ${n}px "Zen Kaku Gothic New",system-ui,sans-serif`;x.font=F(fs);
+  while(x.measureText(s.title).width>avail&&fs>10){fs--;x.font=F(fs)}
+  x.save();x.translate(w/2,titleY);x.rotate(Math.PI/2);x.textAlign='left';x.fillStyle='#fff';x.fillText(s.title,0,0);x.restore();
+  x.beginPath();x.arc(w/2,h-26,Math.min(w*.2,10),0,7);x.fillStyle=STATUS[s.status].c;x.fill();x.lineWidth=2;x.strokeStyle='rgba(255,255,255,.85)';x.stroke();
+  // reflet du plastique
+  const g=x.createLinearGradient(0,0,w,0);g.addColorStop(0,'rgba(0,0,0,.35)');g.addColorStop(.2,'rgba(255,255,255,.06)');g.addColorStop(.5,'rgba(255,255,255,.14)');g.addColorStop(.8,'rgba(0,0,0,.05)');g.addColorStop(1,'rgba(0,0,0,.4)');
+  x.fillStyle=g;x.fillRect(0,0,w,h);
+  return tex(c);
+}
 function spineTexture(s,pal,tpl,num){
-  const T=TYPE[tab],w=T.cw,h=512,[c,x]=canvas2d(w,h);
+  const T=dimOf(s);if(tab==='game')return gameSpine(s,pal,tpl,T);
+  const w=T.cw,h=512,[c,x]=canvas2d(w,h);
   x.fillStyle=tpl.bg;x.fillRect(0,0,w,h);
   let titleY=64;
   if(tpl.kind==='art'){
@@ -228,9 +273,9 @@ function coverTexture(s,pal,tpl,idx){
     const r=Math.max(W/img.naturalWidth,H/img.naturalHeight),dw=img.naturalWidth*r,dh=img.naturalHeight*r;
     try{x.drawImage(img,(W-dw)/2,(H-dh)/2,dw,dh)}catch(e){}
     const g=x.createLinearGradient(0,0,W,0);g.addColorStop(0,'rgba(0,0,0,.25)');g.addColorStop(.05,'rgba(0,0,0,0)');g.addColorStop(.65,'rgba(255,255,255,.05)');g.addColorStop(.8,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,W,H);
-    rr(x,W-96,H-58,80,40,20);x.fillStyle='rgba(12,13,17,.82)';x.fill();
+    if(tab!=='game'){rr(x,W-96,H-58,80,40,20);x.fillStyle='rgba(12,13,17,.82)';x.fill();
     x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';x.font='500 20px "IBM Plex Mono",monospace';
-    x.fillText(tab==='anime'?`C.${idx}`:`T.${idx}`,W-56,H-37);
+    x.fillText(tab==='anime'?`C.${idx}`:`T.${idx}`,W-56,H-37)}
     return {tex:tex(c),rank};
   }
   const g=x.createLinearGradient(0,0,W,H);g.addColorStop(0,shade(pal,.5,.1));g.addColorStop(1,shade(pal,.22,.05));x.fillStyle=g;x.fillRect(0,0,W,H);
@@ -244,9 +289,10 @@ function coverTexture(s,pal,tpl,idx){
   fit();while((lines.length>4||lines.some(l=>x.measureText(l).width>W-84))&&fs>20){fs-=3;x.font=F(fs);fit()}
   x.textBaseline='top';x.lineJoin='round';
   lines.slice(0,5).forEach((l,i)=>{x.lineWidth=8;x.strokeStyle='rgba(10,10,14,.85)';x.strokeText(l,40,44+i*fs*1.1);x.fillStyle='#fff';x.fillText(l,40,44+i*fs*1.1)});
-  x.beginPath();x.arc(W-62,H-70,34,0,7);x.fillStyle=tpl.kind==='band'?pal.css:'#ffffff';x.fill();
+  if(tab==='game'){const T=dimOf(s);x.fillStyle=T.band;x.fillRect(0,0,W,30);x.fillStyle='#fff';x.font='800 16px "IBM Plex Mono",monospace';x.textBaseline='middle';x.fillText(T.short,20,16)}
+  else{x.beginPath();x.arc(W-62,H-70,34,0,7);x.fillStyle=tpl.kind==='band'?pal.css:'#ffffff';x.fill();
   x.fillStyle=tpl.kind==='band'?'#fff':'#141519';x.textAlign='center';x.textBaseline='middle';x.font='400 30px "Dela Gothic One",sans-serif';x.fillText(String(idx),W-62,H-68);
-  x.textAlign='left';x.fillStyle='#fff';x.font='500 15px "IBM Plex Mono",monospace';x.fillText(tab==='anime'?`COFFRET · ÉP. ${(idx-1)*EPS+1}–${idx*EPS}`:'TOME',40,H-70);
+  x.textAlign='left';x.fillStyle='#fff';x.font='500 15px "IBM Plex Mono",monospace';x.fillText(tab==='anime'?`COFFRET · ÉP. ${(idx-1)*EPS+1}–${idx*EPS}`:'TOME',40,H-70)}
   x.fillStyle='rgba(255,255,255,.75)';x.beginPath();x.moveTo(40,H-40);x.lineTo(48,H-32);x.lineTo(40,H-24);x.lineTo(32,H-32);x.closePath();x.fill();
   const sh=x.createLinearGradient(0,0,W,0);sh.addColorStop(0,'rgba(255,255,255,0)');sh.addColorStop(.6,'rgba(255,255,255,.06)');sh.addColorStop(.75,'rgba(255,255,255,0)');x.fillStyle=sh;x.fillRect(0,0,W,H);
   return {tex:tex(c),rank:99};
@@ -279,13 +325,13 @@ const M=new THREE.Matrix4(),Q=new THREE.Quaternion(),V=new THREE.Vector3(),ONE=n
 
 /* ---------- construction ---------- */
 // Meubles de taille fixe, côte à côte : quand l'un est plein, le suivant se remplit.
-const MOD_IW={manga:7.6,anime:7.6}, MOD_SIDE=.14, MOD_GAP=.75;
-function units(s){return tab==='manga'?Math.max(s.owned||0,s.done):Math.ceil(s.done/EPS)}
+const MOD_IW={manga:7.6,anime:7.6,game:7.6}, MOD_SIDE=.14, MOD_GAP=.75;
+function units(s){return tab==='game'?1:tab==='manga'?Math.max(s.owned||0,s.done):Math.ceil(s.done/EPS)}
 function sorted(){
   const l=[...state[tab]];const byT=(a,b)=>a.title.localeCompare(b.title,'fr');
   if(sortBy==='note')l.sort((a,b)=>b.score-a.score||byT(a,b));
-  else if(sortBy==='statut')l.sort((a,b)=>ORDER.indexOf(a.status)-ORDER.indexOf(b.status)||byT(a,b));
-  else if(sortBy==='progression')l.sort((a,b)=>b.done-a.done||byT(a,b));
+  else if(sortBy==='statut')l.sort((a,b)=>ord().indexOf(a.status)-ord().indexOf(b.status)||byT(a,b));
+  else if(sortBy==='progression')l.sort((a,b)=>tab==='game'?(b.hours||0)-(a.hours||0)||byT(a,b):b.done-a.done||byT(a,b));
   else l.sort(byT);return l;
 }
 function placeMatrix(p,hidden){Q.setFromAxisAngle(Z,p.rz);M.compose(V.set(p.x,hidden?-1000:p.y,p.z),Q,ONE);return M}
@@ -294,7 +340,7 @@ function disposeShelf(){
   for(const m of proxies.values())releaseProxy(m,true);proxies.clear();selKey=null;hovKey=null;
   const mats=new Set(),geos=new Set(),texs=new Set();
   shelf.traverse(o=>{if(o.isMesh){geos.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>mats.add(m))}});
-  geos.forEach(g=>{if(!Object.values(mergedGeo).includes(g)&&!Object.values(boxGeo).includes(g))g.dispose()});
+  geos.forEach(g=>{if(!KEEPGEO.has(g))g.dispose()});
   mats.forEach(m=>{if(KEEP.has(m))return;if(m.map&&m.map!==feltTex&&m.map!==wallTex&&m.map!==glowTex)texs.add(m.map);m.dispose()});
   texs.forEach(t=>t.dispose());
   scene.remove(shelf);shelf=new THREE.Group();scene.add(shelf);recs=[];inst=[];
@@ -305,16 +351,16 @@ function build(keep){
   const prevSel=selKey,prevPanel=panelSid;
   try{
     disposeShelf();
-    const T=TYPE[tab],IW=MOD_IW[tab],list=sorted(),gap=.005,sgap=.08,pad=.2,pitch=T.w+gap;
+    const T=TYPE[tab],IW=MOD_IW[tab],list=sorted(),gap=.005,sgap=tab==='game'?.012:.08,pad=.2,pitch=T.w+gap;
     const cap=Math.floor((IW-2*pad+gap)/pitch);
     // rangement : de gauche à droite, planche par planche, puis meuble suivant
     const pos=[],plan=[];let mod=0,row=0,cur=pad;
     const nextRow=()=>{row++;cur=pad;if(row>=ROWS){row=0;mod++}};
-    for(const s of list){const n=units(s);if(n<=0)continue;plan.push(s);
+    for(const s of list){const n=units(s);if(n<=0)continue;plan.push(s);const d=dimOf(s);
       const left=Math.floor((IW-pad-cur+gap)/pitch);
       // une petite série qui ne tient plus sur la planche passe entière à la suivante
       if(cur>pad&&n<=cap&&left<n&&left<cap*.3)nextRow();
-      for(let i=0;i<n;i++){if(cur+T.w>IW-pad)nextRow();pos.push({s,i,mod,row,x:modX0(mod)+MOD_SIDE+cur+T.w/2});cur+=pitch}
+      for(let i=0;i<n;i++){if(cur+d.w>IW-pad)nextRow();pos.push({s,i,mod,row,d,x:modX0(mod)+MOD_SIDE+cur+d.w/2});cur+=d.w+gap}
       cur+=sgap;
     }
     const mods=pos.length?pos[pos.length-1].mod+1:1,OW=IW+2*MOD_SIDE;
@@ -345,21 +391,20 @@ function build(keep){
     // tomes : une série = un bloc instancié, seuls les tomes lus sont rangés
     const byS=new Map();
     for(const q of pos){let a=byS.get(q.s.id);if(!a){a=[];byS.set(q.s.id,a)}
-      const r=rng(hash(q.s.id)+q.i*31);a.push({x:q.x,y:baseY(q.row)+T.h/2,z:(r()-.5)*.035-(tab==='manga'&&q.i>=q.s.done?.14:0),rz:(r()-.5)*.012,mod:q.mod})}
-    const box=new THREE.Vector4(6/T.cw,1-6/T.cw,12/512,(12+T.bh)/512);
+      const r=rng(hash(q.s.id)+q.i*31);a.push({x:q.x,y:baseY(q.row)+q.d.h/2,z:(r()-.5)*.035-(tab==='manga'&&q.i>=q.s.done?.14:0),rz:(r()-.5)*.012,mod:q.mod})}
     for(const s of plan){
       const P=byS.get(s.id);if(!P)continue;
-      const {pal,tpl}=styleFor(s);
-      const rec={s,pal,tpl,pos:P,count:P.length,art:tpl.kind==='art',spines:[]};
-      rec.body=mat({color:bodyColor(pal,tpl),roughness:T.rough,metalness:0});
+      const {pal,tpl}=styleFor(s),D=dimOf(s),G=geoFor(D),box=new THREE.Vector4(6/D.cw,1-6/D.cw,12/512,(12+D.bh)/512);
+      const rec={s,pal,tpl,pos:P,count:P.length,art:tpl.kind==='art',spines:[],dim:D};
+      rec.body=mat({color:bodyColor(pal,tpl,D),roughness:D.rough,metalness:0});
       const map=spineTexture(s,pal,tpl,0),dcol=lin(tpl.digit);rec.dcol=dcol;rec.map=map;
-      const spine=mat({map,roughness:T.rough},{num:{box,color:dcol}});rec.spines.push(spine);
-      const im=new THREE.InstancedMesh(instGeo(mergedGeo[tab],P.map((_,i)=>i+1)),[rec.body,PAGES[tab],spine],P.length);
+      const spine=mat({map,roughness:D.rough},{num:{box,color:dcol}});rec.spines.push(spine);
+      const im=new THREE.InstancedMesh(instGeo(G.merged,P.map((_,i)=>tab==='game'?0:i+1)),[rec.body,PAGES[tab],spine],P.length);
       P.forEach((q,i)=>im.setMatrixAt(i,placeMatrix(q,false)));im.instanceMatrix.needsUpdate=true;
       // mangas : les tomes possédés mais pas encore lus restent dans l'ombre
       if(tab==='manga'){P.forEach((q,i)=>im.setColorAt(i,i<s.done?READ_C:UNREAD_C));im.instanceColor.needsUpdate=true}
       const bb=new THREE.Box3();P.forEach(q=>bb.expandByPoint(V.set(q.x,q.y,0)));
-      const big=new THREE.Sphere();bb.getBoundingSphere(big);big.radius+=1.3;const one=mergedGeo[tab].boundingSphere;
+      const big=new THREE.Sphere();bb.getBoundingSphere(big);big.radius+=1.3;const one=G.merged.boundingSphere;
       im.geometry.boundingSphere=big;
       im.raycast=function(r,hits){this.geometry.boundingSphere=one;try{THREE.InstancedMesh.prototype.raycast.call(this,r,hits)}finally{this.geometry.boundingSphere=big}};
       im.castShadow=true;im.receiveShadow=true;im.userData={rec,offset:0};shelf.add(im);inst.push(im);rec.mesh=im;
@@ -373,23 +418,23 @@ function build(keep){
   }catch(err){console.error(err);toast("L'étagère n'a pas pu s'afficher. Recharge la page pour réessayer.")}
 }
 
-function bodyColor(pal,tpl){return tpl.kind==='band'?lin('#ebe7de'):tpl.kind==='dark'?lin('#17181d'):pal.three}
+function bodyColor(pal,tpl,D){if(tab==='game')return lin((D||dimOf({})).body);return tpl.kind==='band'?lin('#ebe7de'):tpl.kind==='dark'?lin('#17181d'):pal.three}
 // une couverture de série vient d'arriver : on repeint la série sans reconstruire l'étagère
 function restyle(rec){invalidate();
   const st=styleFor(rec.s);if(st.tpl.kind!=='art'||rec.art)return;
   rec.pal=st.pal;rec.tpl=st.tpl;rec.art=true;
   const map=spineTexture(rec.s,st.pal,st.tpl,0);
   rec.spines.forEach(m=>{m.map=map;m.needsUpdate=true});if(rec.map)rec.map.dispose();rec.map=map;
-  rec.dcol.copy(lin(st.tpl.digit));rec.body.color.copy(bodyColor(st.pal,st.tpl));
+  rec.dcol.copy(lin(st.tpl.digit));rec.body.color.copy(bodyColor(st.pal,st.tpl,rec.dim));
   for(const m of proxies.values())if(m.userData.rec===rec){const u=m.userData,old=u.spine.map;u.spine.map=spineTexture(rec.s,rec.pal,rec.tpl,u.idx);u.spine.needsUpdate=true;old.dispose();if(u.cover){removeCover(m);addCover(m)}}
 }
 
 /* ---------- tomes sortis ---------- */
 function getProxy(rec,idx){
   const key=rec.s.id+':'+idx;let m=proxies.get(key);if(m)return m;
-  const T=TYPE[tab];
+  const T=rec.dim;
   const spine=mat({map:spineTexture(rec.s,rec.pal,rec.tpl,idx),roughness:T.rough});
-  m=new THREE.Mesh(boxGeo[tab],[rec.body,rec.body,PAGES[tab],PAGES[tab],spine,rec.body]);m.castShadow=true;m.receiveShadow=true;
+  m=new THREE.Mesh(geoFor(T).box,[rec.body,rec.body,PAGES[tab],PAGES[tab],spine,rec.body]);m.castShadow=true;m.receiveShadow=true;
   const p=rec.pos[idx-1];m.position.set(p.x,p.y,p.z);m.rotation.z=p.rz;
   m.userData={proxy:true,rec,idx,key,base:p,pull:0,hover:0,tp:0,th:0,spine};
   shelf.add(m);proxies.set(key,m);setInst(rec,idx,false);return m;
@@ -399,10 +444,11 @@ function releaseProxy(m,skipRestore){
   if(!skipRestore){setInst(u.rec,u.idx,true);proxies.delete(u.key)}
 }
 // couvertures possibles d'un tome, de la meilleure à la plus générique
-function coverWants(s,idx){return[tab==='manga'?volUrl(s,idx,512):null,s.al&&s.al.coverXL,s.al&&s.al.cover].filter(Boolean)}
+function coverWants(s,idx){if(tab==='game')return[s.igdb&&s.igdb.cover&&igdbImg(s.igdb.cover,'t_cover_big_2x'),s.steam&&steamImg(s.steam.appid)].filter(Boolean);
+  return[tab==='manga'?volUrl(s,idx,512):null,s.al&&s.al.coverXL,s.al&&s.al.cover].filter(Boolean)}
 function addCover(m){const u=m.userData;if(u.cover)return;invalidate();
   const r=coverTexture(u.rec.s,u.rec.pal,u.rec.tpl,u.idx);u.coverRank=r.rank;
-  u.cover=mat({map:r.tex,roughness:tab==='anime'?.18:.4});
+  u.cover=mat({map:r.tex,roughness:tab==='manga'?.4:.18});
   m.material=[u.cover,...m.material.slice(1)];if(u.key===selKey&&!$('#panel').hidden)requestAnimationFrame(paintCover)}
 function removeCover(m){const u=m.userData;if(!u.cover)return;invalidate();m.material=[m.material[1],...m.material.slice(1)];u.cover.map.dispose();u.cover.dispose();u.cover=null}
 const deg=THREE.MathUtils.degToRad;
@@ -411,7 +457,7 @@ function selectUnit(rec,idx,move,instant){
   if(selKey&&selKey!==key){const o=proxies.get(selKey);if(o){o.userData.tp=0;removeCover(o)}}
   const m=getProxy(rec,idx);m.userData.tp=1;selKey=key;panelSid=rec.s.id;addCover(m);
   if(instant){m.userData.pull=1;m.userData.hover=0}
-  if(move){morphFrom=screenRect(m);const T=TYPE[tab],narrow=innerWidth<=720,bh=T.h*1.25,bw=T.d*1.3;
+  if(move){morphFrom=screenRect(m);const T=rec.dim,narrow=innerWidth<=720,bh=T.h*1.25,bw=T.d*1.3;
     const needH=Math.max(bh/(narrow?.38:.6),bw/((narrow?.75:.45)*camera.aspect));
     cam.td=needH/(2*Math.tan(deg(camera.fov/2)))+1.4;const v=vis(cam.td);
     cam.tx=m.userData.base.x+(narrow?0:v.w*.18);cam.ty=m.userData.base.y+.2-(narrow?v.h*.2:0);clampCam()}
@@ -492,7 +538,7 @@ $('#b-left').onclick=()=>goMod(visMods()[0]-1);$('#b-right').onclick=()=>goMod(v
 $('#b-in').onclick=()=>{cam.td/=1.35;clampCam()};$('#b-out').onclick=()=>{cam.td*=1.35;clampCam()};
 addEventListener('keydown',e=>{
   if(e.target.closest&&e.target.closest('input,select,textarea'))return;
-  if(e.key==='Escape'){for(const id of ['#ov-add','#ov-import','#ov-list','#ov-login','#ov-account'])if(!$(id).hidden)return closeModal(id);closePanel()}
+  if(e.key==='Escape'){for(const id of ['#ov-add','#ov-import','#ov-steam','#ov-list','#ov-login','#ov-account'])if(!$(id).hidden)return closeModal(id);closePanel()}
   if(e.key==='ArrowRight')panBy(.35);if(e.key==='ArrowLeft')panBy(-.35);
   if(e.key==='ArrowUp'){cam.ty+=1;clampCam()}if(e.key==='ArrowDown'){cam.ty-=1;clampCam()}
 });
@@ -502,13 +548,13 @@ let panelSid=null;
 const viaProxy=u=>location.protocol.startsWith('http')?'/api/cover?u='+encodeURIComponent(u):u;
 function volUrl(s,idx,size){const f=s.md&&s.md.v&&s.md.v[idx];return f?`https://uploads.mangadex.org/covers/${s.md.id}/${f}.${size}.jpg`:null}
 function findSeries(id){return state[tab].find(s=>s.id===id)}
-const stLbl=k=>tab==='anime'?STATUS[k].a:STATUS[k].m;
-function opts(sel){return ORDER.map(k=>`<option value="${k}"${k===sel?' selected':''}>${stLbl(k)}</option>`).join('')}
+const stLbl=k=>tab==='anime'?STATUS[k].a:tab==='game'?(STATUS[k].g||STATUS[k].m):STATUS[k].m;
+function opts(sel){return ord().map(k=>`<option value="${k}"${k===sel?' selected':''}>${stLbl(k)}</option>`).join('')}
 function scoreOpts(sel){let o=`<option value="0"${!sel?' selected':''}>—</option>`;for(let i=10;i>=1;i--)o+=`<option value="${i}"${i===sel?' selected':''}>${i}</option>`;return o}
 // --- petits effets de la fiche ---
 let morphFrom=null,ringPrev=new Map(),fixOpen=false;
 // position à l'écran d'un tome de l'étagère, d'où part la couverture
-function screenRect(m){const u=m.userData,T=TYPE[tab],r=canvas.getBoundingClientRect();
+function screenRect(m){const u=m.userData,T=u.rec.dim,r=canvas.getBoundingClientRect();
   const pr=(x,y,z)=>{const v=new THREE.Vector3(x,y,z).project(camera);return[r.left+(v.x+1)/2*r.width,r.top+(1-v.y)/2*r.height]};
   const [cx,top]=pr(u.base.x,u.base.y+T.h/2,u.base.z+T.d/2),[,bot]=pr(u.base.x,u.base.y-T.h/2,u.base.z+T.d/2);
   const h=Math.max(8,bot-top);return{x:cx-h*.33,y:top,w:h*.66,h}}
@@ -555,8 +601,8 @@ function renderPanel(){
   const p=$('#panel');const s=panelSid&&findSeries(panelSid);if(!s){p.hidden=true;return}
   const wasHidden=p.hidden;
   const m=selKey&&proxies.get(selKey),idx=m?m.userData.idx:null,rec=recs.find(r=>r.s.id===s.id);
-  const man=tab==='manga',ro=!!viewing;
-  const kind=idx?(man?`Tome ${idx}${idx>s.done?' · pas encore lu':''}`:`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${Math.min(idx*EPS,s.done)}`):(s.done?'Série':(man?"Aucun tome sur l'étagère":'Aucun épisode vu'));
+  const man=tab==='manga',game=tab==='game',ro=!!viewing;
+  const kind=game?`Jeu · ${(GAME_PF[s.platform]||GAME_PF.other).label}`:idx?(man?`Tome ${idx}${idx>s.done?' · pas encore lu':''}`:`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${Math.min(idx*EPS,s.done)}`):(s.done?'Série':(man?"Aucun tome sur l'étagère":'Aucun épisode vu'));
   const rg=ring(s,man),owned=rg.owned,missing=man&&s.total>owned?s.total-owned:0;
   const full=s.total>0&&s.done>=s.total,canBuy=man&&!(s.total&&owned>=s.total);
   let src='';
@@ -570,6 +616,10 @@ function renderPanel(){
       ${missing?`<li class="shop">${missing>1?`Tomes ${owned+1} à ${s.total} à acheter`:`Tome ${s.total} à acheter`}</li>`:''}`
     :`<li><i class="k-read" style="background:${STATUS[s.status].c}"></i><b>${s.done}</b> épisode${s.done>1?'s':''} vu${s.done>1?'s':''}</li><li><i class="k-tot"></i>${s.total?`<b>${s.total}</b> au total`:'diffusion en cours'}</li>`;
   const scoreTxt=v=>v?`${v}/10`:'Pas noté';
+  if(game)src=s.igdb&&s.igdb.cover?'Jaquette : IGDB':s.steam?'Jaquette : Steam':'';
+  const pf=GAME_PF[s.platform]||GAME_PF.other;
+  const gInfoHtml=game?`<div class="g-info"><span class="chip" style="background:${pf.band}">${pf.label}</span>${s.igdb&&s.igdb.year?`<span>Sorti en <b>${s.igdb.year}</b></span>`:''}${s.hours?`<span><b>${s.hours.toLocaleString('fr-FR')}</b> h de jeu</span>`:''}</div>`:'';
+  const pfSeg=game?`<div class="pfs" id="p-pf" role="radiogroup" aria-label="Plateforme">${['switch','ps','xbox','pc','other'].map(k=>`<button type="button" role="radio" aria-checked="${k===s.platform}" data-k="${k}" style="--c:${GAME_PF[k].band}">${GAME_PF[k].label}</button>`).join('')}</div>`:'';
   p.innerHTML=`
     <div class="p-top"><span class="p-kind">${kind}</span><button class="x" id="p-close" aria-label="Fermer">×</button></div>
     <div class="p-hero">
@@ -581,26 +631,28 @@ function renderPanel(){
         ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''} aria-label="${man?'Tome':'Coffret'} précédent">‹</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''} aria-label="${man?'Tome':'Coffret'} suivant">›</button></div>`:''}
       </div>
     </div>
-    <div class="p-prog">${rg.html}<ul class="legend-l">${legend}</ul></div>
-    ${ro?'':`<div class="p-acts">
+    ${game?gInfoHtml:`<div class="p-prog">${rg.html}<ul class="legend-l">${legend}</ul></div>`}
+    ${ro?'':`${pfSeg}<div class="p-acts"${game?' hidden':''}>
       ${full?'':`<button class="btn primary jelly" id="p-plus">+1 ${man?'lu':'épisode'}<small>${man?`tome ${s.done+1}`:`épisode ${s.done+1}`}</small></button>`}
       ${canBuy?`<button class="btn jelly" id="p-buy">+1 acheté<small>tome ${owned+1}</small></button>`:''}
     </div>
     <div class="seg" id="p-seg" role="radiogroup" aria-label="Statut"><span class="seg-ind" aria-hidden="true"></span>
-      ${ORDER.map(k=>`<button type="button" role="radio" aria-checked="${k===s.status}" data-k="${k}" style="--c:${STATUS[k].c}">${stLbl(k)}</button>`).join('')}</div>
+      ${ord().map(k=>`<button type="button" role="radio" aria-checked="${k===s.status}" data-k="${k}" style="--c:${STATUS[k].c}">${stLbl(k)}</button>`).join('')}</div>
     <label class="score"><span>Note</span><input type="range" id="p-score" min="0" max="10" step="1" value="${s.score}" style="--p:${s.score*10}%" aria-valuetext="${scoreTxt(s.score)}"><output id="p-score-o">${scoreTxt(s.score)}</output></label>`}
     ${fan}
     <p class="note" id="p-src"${src?'':' hidden'}>${src}</p>
-    ${ro?'':`<details class="fix" id="p-fix"${fixOpen?' open':''}><summary>Corriger les nombres ou retirer la série</summary>
-      <div class="grid2">
+    ${ro?'':`<details class="fix" id="p-fix"${fixOpen?' open':''}><summary>${game?'Corriger ou retirer le jeu':'Corriger les nombres ou retirer la série'}</summary>
+      ${game?`<div class="grid2"><label class="f">Heures de jeu<input id="p-hours" type="number" min="0" max="100000" value="${s.hours||0}"></label></div>`:''}
+      <div class="grid2"${game?' hidden':''}>
         <label class="f">${man?'Tomes lus':'Épisodes vus'}<input id="p-done" type="number" min="0" max="3000" value="${s.done}"></label>
         ${man?`<label class="f">Tomes possédés<input id="p-owned" type="number" min="0" max="3000" value="${owned}"></label>`:''}
         <label class="f">${man?'Tomes parus':'Épisodes au total'}<input id="p-total" type="number" min="0" max="3000" value="${s.total||''}" placeholder="${man?'en cours':'?'}"></label>
       </div>
-      <button class="btn danger" id="p-del">Retirer de ma bibliothèque</button>
+      <button class="btn danger" id="p-del">${game?'Retirer ce jeu':'Retirer de ma bibliothèque'}</button>
       <div id="p-confirm"></div>
     </details>`}
-    ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}`;
+    ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}
+    ${game&&s.steam?`<a class="note" href="https://store.steampowered.com/app/${s.steam.appid}" target="_blank" rel="noopener">Voir sur Steam</a>`:''}`;
   p.hidden=false;
   paintCover();playMorph(p,wasHidden);
   // l'anneau part de l'ancienne valeur
@@ -610,7 +662,8 @@ function renderPanel(){
   // après un changement, on reconstruit ; « pick » choisit le tome à sortir
   const upd=(fn,pick)=>{const was=s.status;fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;fixOwned(s);save();build(true);
     if(pick){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,clamp(typeof pick==='function'?pick(s):r.count,1,r.count),true,false);else{panelSid=s.id;renderPanel()}}
-    if(was!=='termine'&&s.status==='termine'){burst($('#panel .ring'));toast(`« ${s.title} » terminé, bravo !`)}};
+    const fin=k=>k==='termine'||k==='cent';
+    if(!fin(was)&&fin(s.status)||was!=='cent'&&s.status==='cent'){burst($('#panel .ring')||$('#p-cover'));toast(`« ${s.title} » ${s.status==='cent'?'à 100 %':'terminé'}, bravo !`)}};
   const later=(b,fn)=>{boing(b);setTimeout(fn,reduce?0:200)};
   const plus=$('#p-plus');if(plus)plus.onclick=()=>later(plus,()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},s=>s.done));
   const pb=$('#p-buy');if(pb)pb.onclick=()=>later(pb,()=>upd(s=>s.owned=Math.min(3000,Math.max(s.owned||0,s.done)+1),s=>Math.max(s.owned||0,s.done)));
@@ -625,6 +678,8 @@ function renderPanel(){
   if(sc){sc.oninput=()=>{const v=+sc.value;sc.style.setProperty('--p',v*10+'%');$('#p-score-o').textContent=scoreTxt(v);sc.setAttribute('aria-valuetext',scoreTxt(v))};
     sc.onchange=()=>upd(s=>s.score=+sc.value)}
   const fx=$('#p-fix');if(fx)fx.ontoggle=()=>{fixOpen=fx.open};
+  const pfb=$('#p-pf');if(pfb)pfb.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(b.dataset.k===s.platform)return;upd(s=>s.platform=b.dataset.k,true)});
+  el('#p-hours').onchange=e=>upd(s=>s.hours=clamp(Math.round(+e.target.value||0),0,100000));
   el('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},s=>s.done);
   const po=$('#p-owned');if(po)po.onchange=e=>{const v=clamp(+e.target.value||0,0,3000);if(v<s.done)toast(`Tu as lu ${s.done} tomes : ils restent sur l'étagère.`);upd(s=>s.owned=v,true)};
   el('#p-total').onchange=e=>upd(s=>s.total=clamp(+e.target.value||0,0,3000));
@@ -650,9 +705,9 @@ function renderList(){
   const items=sorted().filter(s=>!q||s.title.toLowerCase().includes(q));
   const box=$('#l-items');
   box.innerHTML=items.length?items.slice(0,500).map(s=>{const n=s.done;
-    const th=s.al&&s.al.cover?`<img alt="" loading="lazy" src="${viaProxy(s.al.cover)}">`:'<span class="ph"></span>';
+    const th=seriesCover(s)?`<img alt="" loading="lazy" src="${viaProxy(seriesCover(s))}">`:'<span class="ph"></span>';
     const o=man?Math.max(s.owned||0,n):0,miss=man&&s.total>o?s.total-o:0;
-    const cnt=man?(o?`${n} lu${n>1?'s':''} · ${o} possédé${o>1?'s':''}${miss?` · ${miss} à acheter`:''}`:'aucun tome rangé'):(n?`${n} épisode${n>1?'s':''}`:'aucun épisode vu');
+    const cnt=tab==='game'?`${(GAME_PF[s.platform]||GAME_PF.other).label}${s.hours?` · ${s.hours} h`:''}`:man?(o?`${n} lu${n>1?'s':''} · ${o} possédé${o>1?'s':''}${miss?` · ${miss} à acheter`:''}`:'aucun tome rangé'):(n?`${n} épisode${n>1?'s':''}`:'aucun épisode vu');
     return `<button type="button" class="al-item" data-id="${s.id}">${th}<span><b>${esc(s.title)}</b><small><i class="dot" style="background:${STATUS[s.status].c}"></i>${stLbl(s.status)} · ${cnt}</small></span></button>`}).join('')
     :'<p class="al-empty">Aucune série ne correspond à cette recherche.</p>';
   box.querySelectorAll('.al-item').forEach(b=>b.onclick=()=>{const s=findSeries(b.dataset.id);if(!s)return;closeModal('#ov-list');
@@ -664,10 +719,10 @@ $('#l-q').addEventListener('input',renderList);
 $('#l-close').onclick=()=>closeModal('#ov-list');
 
 /* ---------- sauvegarde : télécharger / restaurer la bibliothèque ---------- */
-const count=d=>d.manga.length+d.anime.length;
+const count=d=>d.manga.length+d.anime.length+(d.game||[]).length;
 $('#bk-export').onclick=()=>{
   const d=new Date(),day=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const blob=new Blob([JSON.stringify({app:'myweebrary',version:1,exported:d.toISOString(),manga:state.manga,anime:state.anime},null,1)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({app:'myweebrary',version:1,exported:d.toISOString(),manga:state.manga,anime:state.anime,game:state.game},null,1)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`myweebrary-${day}.json`;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);toast(`Sauvegarde téléchargée : ${count(state)} séries.`)};
 $('#bk-import').onclick=()=>$('#bk-file').click();
@@ -677,8 +732,8 @@ $('#bk-file').onchange=async e=>{
   try{const raw=JSON.parse(await readText(f));if(!raw||(!Array.isArray(raw.manga)&&!Array.isArray(raw.anime)))throw 0;d=normalize(raw)}
   catch(_){box.innerHTML='<p class="err">Ce fichier n\'est pas une sauvegarde MyWeebrary.</p>';return}
   if(!count(d)){box.innerHTML='<p class="err">Cette sauvegarde ne contient aucune série.</p>';return}
-  const mine=state.manga.concat(state.anime).filter(s=>!s.example).length;
-  const apply=()=>{state.manga=d.manga;state.anime=d.anime;save();box.innerHTML='';closeModal('#ov-list');closePanel();
+  const mine=state.manga.concat(state.anime,state.game).filter(s=>!s.example).length;
+  const apply=()=>{state.manga=d.manga;state.anime=d.anime;state.game=d.game;save();box.innerHTML='';closeModal('#ov-list');closePanel();
     tab=d.manga.length||!d.anime.length?'manga':'anime';build(false);progress();enrich();toast(`Bibliothèque restaurée : ${d.manga.length} mangas et ${d.anime.length} animes.`)};
   if(!mine)return apply();
   box.innerHTML=`<div class="confirm"><span>Remplacer ${mine>1?`tes ${mine} séries`:'ta série'} par ${count(d)>1?`les ${count(d)} séries`:'la série'} de la sauvegarde ?</span><div class="row"><button class="btn danger" id="bk-ok">Remplacer</button><button class="btn" id="bk-no">Annuler</button></div></div>`;
@@ -695,8 +750,8 @@ function updateBanner(){
     else h=`<span>Chargement de la bibliothèque de <b>@${esc(viewing.name)}</b>…</span>`;
   }
   else if(loadingAccount)h='<span>Chargement de ta bibliothèque…</span>';
-  else if(l.some(s=>s.example))h=`<span>Étagère d'exemple.</span> <button data-act="import">Importer ta liste MyAnimeList</button><span class="long">pour la remplacer par la tienne.</span>`;
-  else if(!l.length)h=`<span>${tab==='manga'?'Aucun manga':'Aucun anime'} pour l'instant.</span> <button data-act="import">Importer ta liste MyAnimeList</button> <span>ou</span> <button data-act="add">ajouter une série</button>`;
+  else if(l.some(s=>s.example))h=`<span>Étagère d'exemple.</span> <button data-act="import">${tab==='game'?'Importer ta ludothèque Steam':'Importer ta liste MyAnimeList'}</button><span class="long">pour la remplacer par la tienne.</span>`;
+  else if(!l.length)h=`<span>${tab==='manga'?'Aucun manga':tab==='anime'?'Aucun anime':'Aucun jeu'} pour l'instant.</span> <button data-act="import">${tab==='game'?'Importer ta ludothèque Steam':'Importer ta liste MyAnimeList'}</button> <span>ou</span> <button data-act="add">${tab==='game'?'ajouter un jeu':'ajouter une série'}</button>`;
   else if(sb&&!acct.user)h=`<span>Ta bibliothèque est enregistrée dans ce navigateur seulement.</span> <button data-act="login">Crée un compte</button><span class="long">pour la retrouver partout et la partager.</span>`;
   b.innerHTML=h;b.hidden=!h;
 }
@@ -704,34 +759,42 @@ $('#banner').addEventListener('click',e=>{const a=e.target.closest('[data-act]')
   ({import:()=>$('#btn-import').click(),add:()=>$('#btn-add').click(),login:()=>$('#btn-account').click()})[a.dataset.act]()});
 function updateHeader(){
   document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
+  $('#btn-import').textContent=(innerWidth<=720?'':'Importer ')+(tab==='game'?'Steam':'MAL');
+  $('#sort option[value=progression]').textContent=tab==='game'?'Temps de jeu':tab==='anime'?"Nombre d'épisodes":'Nombre de tomes';
   const l=state[tab];const done=l.reduce((a,s)=>a+s.done,0),own=tab==='manga'?l.reduce((a,s)=>a+Math.max(s.owned||0,s.done),0):0;
-  $('#stats').innerHTML=`<b>${l.length}</b> série${l.length>1?'s':''} · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?`tomes lus · <b>${own.toLocaleString('fr-FR')}</b> possédés`:'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
+  if(tab==='game'){const fin=l.filter(s=>s.status==='termine'||s.status==='cent').length,hrs=l.reduce((a,s)=>a+(s.hours||0),0);
+    $('#stats').innerHTML=`<b>${l.length}</b> jeu${l.length>1?'x':''} · <b>${fin}</b> terminé${fin>1?'s':''}${hrs?` · <b>${hrs.toLocaleString('fr-FR')}</b> h de jeu`:''} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`}
+  else $('#stats').innerHTML=`<b>${l.length}</b> série${l.length>1?'s':''} · <b>${done.toLocaleString('fr-FR')}</b> ${tab==='manga'?`tomes lus · <b>${own.toLocaleString('fr-FR')}</b> possédés`:'épisodes vus'} · <b>${layout.mods}</b> meuble${layout.mods>1?'s':''}`;
   updateBanner();
-  $('#legend').innerHTML=ORDER.map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${stLbl(k)}</span>`).join('')+(tab==='manga'?'<span><i style="background:#3a3c44"></i>Pas encore lu</span>':'');
+  $('#legend').innerHTML=ord().map(k=>`<span><i style="background:${STATUS[k].c};border-radius:50%"></i>${stLbl(k)}</span>`).join('')+(tab==='manga'?'<span><i style="background:#3a3c44"></i>Pas encore lu</span>':'');
   modTxt='';
 }
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(tab===b.dataset.tab)return;closePanel();tab=b.dataset.tab;build(false);progress()});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(tab===b.dataset.tab)return;closePanel();tab=b.dataset.tab;build(false);progress();if(tab==='game')gameEnrich()});
 $('#sort').onchange=e=>{sortBy=e.target.value;build(true)};
 function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>el.hidden=true,3500)}
 
 /* ---------- modales ---------- */
 function openModal(id){$(id).hidden=false;const f=$(id).querySelector('input:not([type=file]),button');f&&f.focus()}
 function closeModal(id){$(id).hidden=true}
-['#ov-import','#ov-add','#ov-list','#ov-login','#ov-account'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id.slice(1))closeModal(id)}));
-$('#btn-import').onclick=()=>{$('#imp-err').hidden=true;openModal('#ov-import')};
+['#ov-import','#ov-add','#ov-list','#ov-login','#ov-account','#ov-steam'].forEach(id=>$(id).addEventListener('click',e=>{if(e.target.id===id.slice(1))closeModal(id)}));
+$('#btn-import').onclick=()=>{if(tab==='game'){$('#st-err').hidden=true;openModal('#ov-steam');return}$('#imp-err').hidden=true;openModal('#ov-import')};
 $('#imp-close').onclick=()=>closeModal('#ov-import');
 $('#btn-add').onclick=()=>{
   $('#add-form').reset();
-  $('#add-t').textContent=tab==='anime'?'Ajouter un anime':'Ajouter un manga';
-  $('#a-done-l').textContent=tab==='anime'?'Épisodes vus':'Tomes lus';$('#a-owned-f').hidden=tab==='anime';$('#a-total-l').textContent=tab==='anime'?'Épisodes au total':'Tomes parus';
+  const g=tab==='game';$('#add-t').textContent=g?'Ajouter un jeu':tab==='anime'?'Ajouter un anime':'Ajouter un manga';
+  $('#a-title').placeholder=g?'Ex. Elden Ring':'Ex. Blue Lock';$('#a-platform-f').hidden=!g;$('#a-platform').innerHTML=pfOpts('ps');gPick=null;
+  for(const id of ['#a-done','#a-total'])$(id).closest('label').hidden=g;$('#a-total-note').hidden=g;$('#a-submit').textContent=g?"Ranger le jeu":"Ranger sur l'étagère";
+  $('#a-done-l').textContent=tab==='anime'?'Épisodes vus':'Tomes lus';$('#a-owned-f').hidden=tab!=='manga';$('#a-total-l').textContent=tab==='anime'?'Épisodes au total':'Tomes parus';
   $('#a-status').innerHTML=opts('en_cours');$('#a-score').innerHTML=scoreOpts(0);alPick=null;renderResults(null);$('#a-picked').hidden=true;openModal('#ov-add')};
 $('#add-close').onclick=()=>closeModal('#ov-add');
 $('#add-form').onsubmit=e=>{e.preventDefault();
   const s={id:uid(),title:$('#a-title').value.trim().slice(0,80),done:clamp(+$('#a-done').value||0,0,3000),total:clamp(+$('#a-total').value||0,0,3000),status:$('#a-status').value,score:+$('#a-score').value};
-  if(!s.title)return;if(tab==='manga')s.owned=+$('#a-owned').value||0;if(alPick)applyAl(s,tab,alPick);if(s.status==='termine'&&s.total)s.done=s.total;fixOwned(s);
+  if(!s.title)return;
+  if(tab==='game'){Object.assign(s,{done:0,total:0,platform:$('#a-platform').value,hours:0});if(gPick)s.igdb=gInfo(gPick)}
+  if(tab==='manga')s.owned=+$('#a-owned').value||0;if(alPick)applyAl(s,tab,alPick);if(s.status==='termine'&&s.total)s.done=s.total;fixOwned(s);
   state[tab].push(s);save();closeModal('#ov-add');build(true);
   const rec=recs.find(r=>r.s.id===s.id);if(rec)selectUnit(rec,rec.count,true,false);else openPanel(s);
-  toast(rec?`« ${s.title} » rangé sur l'étagère`:`« ${s.title} » ajouté à tes séries : ses tomes apparaîtront dès que tu en auras lu un.`);if(!s.al)enrich()};
+  toast(rec?`« ${s.title} » rangé sur l'étagère`:`« ${s.title} » ajouté à tes séries : ses tomes apparaîtront dès que tu en auras lu un.`);if(tab==='game'){if(!s.igdb)gameEnrich()}else if(!s.al)enrich()};
 
 /* ---------- import MyAnimeList ---------- */
 const MAP={'completed':'termine','reading':'en_cours','watching':'en_cours','on-hold':'pause','dropped':'abandonne','plan to read':'a_lire','plan to watch':'a_lire','1':'en_cours','2':'termine','3':'pause','4':'abandonne','6':'a_lire'};
@@ -811,12 +874,12 @@ function applyAl(s,kind,m){
   if(kind==='manga')s.owned=Math.max(s.owned||0,s.done);
 }
 let enriching=false,restyleTimer=0;
-function pendingCount(kind){return state[kind].filter(s=>!s.al&&!s.alMiss).length}
+function pendingCount(kind){return kind==='game'?state.game.filter(s=>!s.igdb&&!s.igdbMiss).length:state[kind].filter(s=>!s.al&&!s.alMiss).length}
 async function enrich(){
   if(enriching||viewing)return;enriching=true;progress();
   let failed=false;
   try{
-    for(const kind of [tab,tab==='manga'?'anime':'manga']){
+    for(const kind of tab==='anime'?['anime','manga']:['manga','anime']){
       const T=kind==='manga'?'MANGA':'ANIME';
       let todo=state[kind].filter(s=>!s.al&&!s.alMiss&&s.malId);
       for(let i=0;i<todo.length;i+=50){
@@ -838,15 +901,16 @@ async function enrich(){
     }
   }catch(e){console.warn(e);failed=true}
   finally{enriching=false;progress();if(failed)toast("AniList ne répond pas pour l'instant. Les couvertures manquantes seront récupérées à ta prochaine visite.")}
+  gameEnrich();
 }
 function afterBatch(kind){save();progress();if(kind!==tab)return;
   // les volumes connus d'AniList peuvent ajouter des tomes « non lus » : on reconstruit si besoin
   clearTimeout(restyleTimer);restyleTimer=setTimeout(()=>{const before=recs.map(r=>r.count).join(',');
     const now=sorted().map(units).filter(n=>n>0).join(',');
-    if(before!==now)build(true);else recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)})},400)}
+    if(before!==now)build(true);else recs.forEach(r=>{if(seriesCover(r.s))coverImg(seriesCover(r.s))})},400)}
 function progress(){
   const el=$('#al-progress');if(!el)return;const n=pendingCount(tab),tot=state[tab].length;
-  el.hidden=!(enriching&&n>0);el.textContent=`Couvertures : ${tot-n}/${tot}`;
+  el.hidden=!((tab==='game'?gEnriching:enriching)&&n>0);el.textContent=`${tab==='game'?'Jaquettes':'Couvertures'} : ${tot-n}/${tot}`;
 }
 // images : passent par le relais du site (/api/cover) pour être utilisables en 3D
 const IMG=new Map();
@@ -861,7 +925,7 @@ function coverImg(url,quiet){
 }
 let imgQueue=new Set(),imgTimer=0;
 function onImg(url){imgQueue.add(url);if(imgTimer)return;imgTimer=requestAnimationFrame(()=>{imgTimer=0;const q=imgQueue;imgQueue=new Set();
-  for(const rec of recs){const a=rec.s.al;if(a&&q.has(a.cover))restyle(rec)}
+  for(const rec of recs){const u=seriesCover(rec.s);if(u&&q.has(u))restyle(rec)}
   for(const m of proxies.values()){const u=m.userData;if(!u.cover)continue;
     if(coverWants(u.rec.s,u.idx).some((x,i)=>i<u.coverRank&&q.has(x))){removeCover(m);addCover(m)}}})}
 
@@ -880,12 +944,116 @@ function renderResults(list){
     renderResults(null);$('#a-picked').hidden=false;$('#a-picked').textContent='Fiche AniList sélectionnée : la couverture sera ajoutée.'})
 }
 $('#a-title').addEventListener('input',()=>{
-  alPick=null;$('#a-picked').hidden=true;clearTimeout(searchTimer);const q=$('#a-title').value.trim();
+  alPick=null;gPick=null;$('#a-picked').hidden=true;clearTimeout(searchTimer);const q=$('#a-title').value.trim();
   if(q.length<2){renderResults(null);return}
+  if(tab==='game'){searchTimer=setTimeout(()=>searchGames(q,++searchSeq),450);return}
   searchTimer=setTimeout(async()=>{const seq=++searchSeq;
     try{const d=await alQuery(`query($q:String){Page(perPage:6){media(search:$q,type:${tab==='manga'?'MANGA':'ANIME'},sort:SEARCH_MATCH){${FIELDS}}}}`,{q});
       if(seq===searchSeq&&!$('#ov-add').hidden)renderResults((d.Page&&d.Page.media)||[])}
     catch(e){if(seq===searchSeq){$('#a-results').hidden=false;$('#a-results').innerHTML='<p class="al-empty">La recherche AniList ne répond pas. Tu peux remplir les champs à la main.</p>'}}},450)});
+
+/* ---------- jeux vidéo : IGDB, Steam ---------- */
+const igdbImg=(id,size)=>id?`https://images.igdb.com/igdb/image/upload/${size||'t_cover_big'}/${id}.jpg`:null;
+const steamImg=appid=>appid?`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`:null;
+// familles de plateformes IGDB → boîtier
+const PF_IDS={switch:[130,508,41,5,37,4,18,19,20,21,22,24,33,47,137,159],ps:[167,48,9,8,7,46,38,390],xbox:[169,49,12,11],pc:[6,14,3,92,163]};
+function pfOf(ids){for(const k of ['switch','ps','xbox','pc'])if((ids||[]).some(i=>PF_IDS[k].includes(typeof i==='object'?i.id:i)))return k;return 'other'}
+function pfList(ids){const out=[];for(const k of ['switch','ps','xbox','pc'])if((ids||[]).some(i=>PF_IDS[k].includes(typeof i==='object'?i.id:i)))out.push(k);return out.length?out:['other']}
+let igChain=Promise.resolve(),igNext=0,igOff=false,igWarned=false;
+function igdb(endpoint,query){
+  const run=async()=>{
+    if(igOff)throw new Error('igdb_off');
+    for(let a=0;a<3;a++){
+      const w=igNext-Date.now();if(w>0)await sleep(w);igNext=Date.now()+300;
+      const r=await fetch('/api/igdb',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint,query})});
+      if(r.status===503){igOff=true;throw new Error('igdb_off')}
+      if(r.status===429){igNext=Date.now()+1500;continue}
+      const j=await r.json().catch(()=>null);
+      if(!r.ok)throw Object.assign(new Error('igdb '+r.status),{status:r.status,body:j});
+      return j;
+    }
+    throw new Error('igdb_busy');
+  };
+  const p=igChain.then(run,run);igChain=p.catch(()=>{});return p;
+}
+const igq=t=>String(t).replace(/["\\]/g,' ').slice(0,120);
+const gInfo=g=>({id:g.id,cover:g.cover&&g.cover.image_id||null,year:g.first_release_date?new Date(g.first_release_date*1000).getFullYear():0,pf:(g.platforms||[]).map(p=>typeof p==='object'?p.id:p)});
+const GFIELDS='id,name,first_release_date,cover.image_id,platforms';
+// Steam → IGDB : on essaie le nouveau nom de champ d'IGDB, puis l'ancien
+async function steamToIgdb(appids){
+  const uids=appids.map(a=>`"${a}"`).join(',');
+  const f=`fields uid,game.id,game.name,game.first_release_date,game.cover.image_id,game.platforms;`;
+  try{return await igdb('external_games',`${f} where external_game_source = 1 & uid = (${uids}); limit 500;`)}
+  catch(e){if(e.status===400)return igdb('external_games',`${f} where category = 1 & uid = (${uids}); limit 500;`);throw e}
+}
+let gEnriching=false;
+async function gameEnrich(){
+  if(gEnriching||viewing||!location.protocol.startsWith('http'))return;gEnriching=true;
+  try{
+    const L=()=>state.game;
+    let todo=L().filter(s=>!s.igdb&&!s.igdbMiss&&s.steam&&s.steam.appid);
+    for(let i=0;i<todo.length;i+=100){
+      const chunk=todo.slice(i,i+100),rows=await steamToIgdb(chunk.map(s=>s.steam.appid));
+      const by=new Map((rows||[]).filter(r=>r.game).map(r=>[String(r.uid),r.game]));
+      chunk.forEach(s=>{const g=by.get(String(s.steam.appid));if(g)s.igdb=gInfo(g);else s.igdbMiss=1});
+      gAfter();
+    }
+    todo=L().filter(s=>!s.igdb&&!s.igdbMiss);
+    for(let i=0;i<todo.length;i+=10){
+      const chunk=todo.slice(i,i+10);
+      const q=chunk.map((s,j)=>`query games "g${j}" { search "${igq(s.title)}"; fields ${GFIELDS}; limit 1; };`).join('\n');
+      const res=await igdb('multiquery',q);
+      chunk.forEach((s,j)=>{const r=(res||[]).find(x=>x.name==='g'+j),g=r&&r.result&&r.result[0];if(g){s.igdb=gInfo(g);if(!s.platform||s.platform==='other')s.platform=pfOf(g.platforms)}else s.igdbMiss=1});
+      gAfter();
+    }
+  }catch(e){console.warn(e);if(e.message==='igdb_off'&&tab==='game'&&!igWarned){igWarned=true;toast("Les jaquettes de jeux arriveront dès que l'accès IGDB sera configuré sur le site.")}}
+  finally{gEnriching=false;progress()}
+}
+function gAfter(){save();progress();if(tab!=='game')return;clearTimeout(restyleTimer);
+  restyleTimer=setTimeout(()=>{const before=recs.map(r=>r.s.platform).join(','),now=sorted().map(s=>s.platform).join(',');
+    if(before!==now)build(true);else recs.forEach(r=>{const u=seriesCover(r.s);if(u)coverImg(u)})},400)}
+
+// --- recherche IGDB dans « Ajouter » ---
+let gPick=null;
+function renderGameResults(list){
+  const box=$('#a-results');if(!list){box.hidden=true;box.innerHTML='';return}box.hidden=false;
+  if(!list.length){box.innerHTML='<p class="al-empty">Aucun jeu trouvé sur IGDB. Tu peux quand même l\'ajouter avec ce titre.</p>';return}
+  box.innerHTML=list.map((g,i)=>{const c=g.cover&&g.cover.image_id,y=g.first_release_date?new Date(g.first_release_date*1000).getFullYear():'';
+    const pl=pfList(g.platforms).filter(k=>k!=='other').map(k=>GAME_PF[k].label).join(', ');
+    return `<button type="button" class="al-item" data-i="${i}">${c?`<img alt="" loading="lazy" src="${viaProxy(igdbImg(c,'t_cover_small'))}">`:'<span class="ph"></span>'}<span><b>${esc(g.name)}</b><small>${[y,pl].filter(Boolean).join(' · ')||'Plateforme inconnue'}</small></span></button>`}).join('');
+  box.querySelectorAll('.al-item').forEach(b=>b.onclick=()=>{const g=list[+b.dataset.i];gPick=g;$('#a-title').value=g.name;
+    const ks=pfList(g.platforms);$('#a-platform').innerHTML=pfOpts(ks[0],ks);renderGameResults(null);
+    $('#a-picked').hidden=false;$('#a-picked').textContent='Fiche IGDB sélectionnée : la jaquette sera ajoutée.'})
+}
+function pfOpts(sel,first){const all=[...new Set([...(first||[]),'switch','ps','xbox','pc','other'])];
+  return all.map(k=>`<option value="${k}"${k===sel?' selected':''}>${GAME_PF[k].label}</option>`).join('')}
+async function searchGames(q,seq){
+  try{const r=await igdb('games',`search "${igq(q)}"; fields ${GFIELDS}; limit 8;`);
+    if(seq===searchSeq&&!$('#ov-add').hidden)renderGameResults(r||[])}
+  catch(e){if(seq===searchSeq){$('#a-results').hidden=false;$('#a-results').innerHTML=`<p class="al-empty">${e.message==='igdb_off'?"La recherche de jeux n'est pas encore configurée sur le site.":"La recherche IGDB ne répond pas."} Tu peux remplir les champs à la main.</p>`}}
+}
+
+// --- import Steam ---
+$('#st-form').onsubmit=async e=>{e.preventDefault();
+  const v=$('#st-profile').value.trim(),err=$('#st-err'),btn=$('#st-go');err.hidden=true;
+  if(!v){err.textContent="Colle l'adresse de ton profil Steam, par exemple https://steamcommunity.com/id/ton-pseudo.";err.hidden=false;return}
+  btn.disabled=true;btn.textContent='Import…';
+  try{
+    const r=await fetch('/api/steam?profile='+encodeURIComponent(v));const j=await r.json().catch(()=>({}));
+    if(!r.ok){const m={private_profile:"Ton profil Steam ne montre pas tes jeux. Sur Steam : Profil → Modifier le profil → Confidentialité → « Détails des jeux : Public », puis réessaie.",
+      profile_not_found:"Ce profil Steam est introuvable. Vérifie l'adresse ou le pseudo.",not_configured:"L'import Steam n'est pas encore configuré sur le site."};
+      throw new Error(m[j.error]||"Steam ne répond pas pour l'instant. Réessaie dans quelques minutes.")}
+    const keep=state.game.filter(s=>!s.example),byApp=new Map(keep.filter(s=>s.steam).map(s=>[s.steam.appid,s])),byT=new Map(keep.map(s=>[s.title.toLowerCase(),s]));
+    let added=0;
+    for(const g of j.games){const ex=byApp.get(g.appid)||byT.get(String(g.name).toLowerCase()),hours=Math.round(g.minutes/60);
+      if(ex){ex.steam={appid:g.appid};ex.hours=Math.max(ex.hours||0,hours);continue}
+      keep.push({id:uid(),title:String(g.name).slice(0,200),done:0,total:0,score:0,platform:'pc',status:g.minutes>0?'en_cours':'a_lire',steam:{appid:g.appid},hours});added++}
+    state.game=keep;save();closeModal('#ov-steam');closePanel();build(false);
+    toast(`Import Steam réussi : ${j.games.length} jeux, dont ${added} nouveaux. Les jaquettes arrivent au fur et à mesure.`);gameEnrich();
+  }catch(e2){err.textContent=e2.message;err.hidden=false}
+  finally{btn.disabled=false;btn.textContent='Importer'}
+};
+$('#st-close').onclick=()=>closeModal('#ov-steam');
 
 /* ---------- MangaDex : couvertures de chaque tome ---------- */
 // MangaDex exige de passer par un serveur : tout va par /api/mangadex et /api/cover.
@@ -947,18 +1115,18 @@ const PUBLIC_RE=/^\/u\/([a-z0-9_-]{3,24})\/?$/;
 const USER_RE=/^[a-z0-9_-]{3,24}$/;
 const RESERVED=['admin','api','app','u','login','compte','hondana','myweebrary','weebrary','support','aide'];
 const pageUrl=u=>`${location.origin}/u/${u}`;
-const EXTRA=['al','md','estimated','q','alMiss','mdMiss'];
+const EXTRA=['al','md','estimated','q','alMiss','mdMiss','igdb','igdbMiss','steam','platform','hours'];
 function toRow(s,kind){const extra={};for(const k of EXTRA)if(s[k]!=null)extra[k]=s[k];
   return{user_id:acct.user.id,id:String(s.id),kind,title:s.title.slice(0,200),done:s.done,owned:kind==='manga'?Math.max(s.owned||0,s.done):0,total:s.total,status:s.status,score:s.score,mal_id:s.malId||null,extra}}
 function fromRow(r){return{...(r.extra||{}),id:r.id,title:r.title,done:r.done,owned:r.owned||0,total:r.total,status:r.status,score:r.score,malId:r.mal_id||0}}
-function setLibrary(data){state.manga=data.manga;state.anime=data.anime}
+function setLibrary(data){state.manga=data.manga;state.anime=data.anime;state.game=data.game||[]}
 async function fetchSeries(uid){
   const rows=[];
   for(let from=0;from<20000;from+=1000){
     const {data,error}=await sb.from('series').select('*').eq('user_id',uid).range(from,from+999);
     if(error)throw error;rows.push(...data);if(data.length<1000)break;
   }
-  const out={manga:[],anime:[]};for(const r of rows)(out[r.kind]||out.manga).push(fromRow(r));return normalize(out);
+  const out={manga:[],anime:[],game:[]};for(const r of rows)(out[r.kind]||out.manga).push(fromRow(r));return normalize(out);
 }
 
 // page publique : /u/pseudo, en lecture seule
@@ -967,11 +1135,11 @@ async function loadPublic(name){
   try{
     const {data:p,error}=await sb.from('profiles').select('id,username,is_public').eq('username',name).maybeSingle();
     if(error)throw error;
-    if(!p){viewing.missing=true;setLibrary({manga:[],anime:[]});build(false);return}
+    if(!p){viewing.missing=true;setLibrary({manga:[],anime:[],game:[]});build(false);return}
     viewing.profile=p;setLibrary(await fetchSeries(p.id));
-    if(!state.manga.length&&state.anime.length)tab='anime';
+    if(!state.manga.length)tab=state.anime.length?'anime':state.game.length?'game':'manga';
     document.title=`Bibliothèque de @${p.username} · MyWeebrary`;
-    build(false);recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
+    build(false);recs.forEach(r=>{if(seriesCover(r.s))coverImg(seriesCover(r.s))});
   }catch(e){console.warn(e);viewing.failed=true;updateHeader();toast("La bibliothèque n'a pas pu être chargée. Recharge la page pour réessayer.")}
 }
 
@@ -982,13 +1150,13 @@ async function loadAccount(user){
     const {data:p,error}=await sb.from('profiles').select('*').eq('id',user.id).maybeSingle();
     if(error)throw error;acct.profile=p||null;updateAccountBtn();
     const remote=await fetchSeries(user.id);synced.clear();
-    for(const k of ['manga','anime'])for(const s of remote[k])synced.set(k+':'+s.id,JSON.stringify(toRow(s,k)));
+    for(const k of ['manga','anime','game'])for(const s of remote[k])synced.set(k+':'+s.id,JSON.stringify(toRow(s,k)));
     // séries de ce navigateur pas encore dans le compte
     let added=0;const localLib=normalize(load()||{});
-    for(const k of ['manga','anime']){const have=new Set(remote[k].map(s=>s.title.toLowerCase()));
+    for(const k of ['manga','anime','game']){const have=new Set(remote[k].map(s=>s.title.toLowerCase()));
       for(const s of localLib[k])if(!s.example&&!have.has(s.title.toLowerCase())){remote[k].push(s);have.add(s.title.toLowerCase());added++}}
     closePanel();loadingAccount=false;setLibrary(remote);
-    build(false);recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
+    build(false);recs.forEach(r=>{if(seriesCover(r.s))coverImg(seriesCover(r.s))});
     if(added){toast(`${added} série${added>1?'s':''} de ce navigateur ajoutée${added>1?'s':''} à ton compte.`);sync()}
     enrich();
     if(!acct.profile)openModal('#ov-user');
@@ -999,7 +1167,7 @@ async function sync(){
   if(!acct.user)return;if(syncing){syncAgain=true;return}syncing=true;clearTimeout(syncTimer);
   try{
     const up=[],seen=new Set();
-    for(const k of ['manga','anime'])for(const s of state[k]){if(s.example)continue;const key=k+':'+s.id;seen.add(key);
+    for(const k of ['manga','anime','game'])for(const s of state[k]){if(s.example)continue;const key=k+':'+s.id;seen.add(key);
       const row=toRow(s,k),j=JSON.stringify(row);if(synced.get(key)!==j)up.push([key,row,j])}
     for(let i=0;i<up.length;i+=400){const part=up.slice(i,i+400);
       const {error}=await sb.from('series').upsert(part.map(x=>x[1]),{onConflict:'user_id,id'});if(error)throw error;
@@ -1081,8 +1249,8 @@ function flick(t){if(t<=0)return 0;if(t<50)return 1;if(t<100)return .12;if(t<150
 function setRow(r,v){LED.uRowOn.value.setComponent(r,v);if(rowLed[r])rowLed[r].color.copy(BASE_LED).multiplyScalar(Math.max(v,.03));if(rowGlow[r])rowGlow[r].opacity=v}
 function startIntro(){
   if(reduce){endIntro();return}
-  const lights=!lightsShown;lightsShown=true;const T=TYPE[tab],list=[];let end=0;
-  for(const rec of recs)rec.pos.forEach((p,i)=>{const row=clamp(ROWS-1-Math.round((p.y-T.h/2-PLANK)/ROW_H),0,ROWS-1),mod=p.mod||0;
+  const lights=!lightsShown;lightsShown=true;const list=[];let end=0;
+  for(const rec of recs)rec.pos.forEach((p,i)=>{const row=clamp(ROWS-1-Math.round((p.y-rec.dim.h/2-PLANK)/ROW_H),0,ROWS-1),mod=p.mod||0;
     const d=(lights?380+row*260:row*150)+((p.x-modX0(mod))/layout.OW)*420+Math.min(mod,3)*160;if(d>end)end=d;
     list.push({rec,i,p,d,done:false});rec.mesh.setMatrixAt(i,placeMatrix(p,true));rec.mesh.instanceMatrix.needsUpdate=true});
   intro={t0:performance.now(),lights,list,end:end+700};
@@ -1134,6 +1302,6 @@ try{await Promise.race([document.fonts.ready,new Promise(r=>setTimeout(r,2500))]
 resize();build(false);invalidate();
 // les couvertures déjà connues sont chargées, les autres sont demandées à AniList
 if(viewing){$('#btn-add').hidden=true;$('#btn-import').hidden=true}
-recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
+recs.forEach(r=>{if(seriesCover(r.s))coverImg(seriesCover(r.s))});
 initAccounts().catch(e=>console.warn(e)).then(()=>{if(!viewing&&!acct.user)enrich()});
 })();
