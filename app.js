@@ -953,7 +953,10 @@ $('#user-form').onsubmit=async e=>{e.preventDefault();
   if(!USER_RE.test(name)){err.textContent='Ton pseudo doit faire de 3 à 24 caractères : lettres minuscules sans accent, chiffres, tiret ou tiret bas.';err.hidden=false;return}
   if(RESERVED.includes(name)){err.textContent='Ce pseudo est réservé. Choisis-en un autre.';err.hidden=false;return}
   const {data,error}=await sb.from('profiles').insert({id:acct.user.id,username:name,is_public:true}).select().single();
-  if(error){err.textContent=error.code==='23505'?'Ce pseudo est déjà pris. Choisis-en un autre.':"Ton pseudo n'a pas pu être enregistré. Réessaie.";err.hidden=false;return}
+  if(error){console.warn(error);err.textContent=error.code==='23505'?'Ce pseudo est déjà pris. Choisis-en un autre.'
+    :(error.code==='PGRST205'||error.code==='42P01'||/schema cache|does not exist/i.test(error.message||''))?"La base de données n'est pas encore prête : le script schema.sql n'a pas été exécuté dans Supabase."
+    :error.code==='42501'?"La base refuse l'enregistrement (droits d'accès). Relance le script schema.sql dans Supabase."
+    :`Ton pseudo n'a pas pu être enregistré (${error.code||'erreur'} : ${error.message||'inconnue'}).`;err.hidden=false;return}
   acct.profile=data;updateAccountBtn();closeModal('#ov-user');sync();
   toast(`Ta page publique est prête : ${pageUrl(name)}`);
 };
