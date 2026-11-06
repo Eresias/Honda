@@ -39,7 +39,10 @@ function normalize(d){
 // /u/pseudo : on visite la bibliothèque publique de quelqu'un, en lecture seule
 const pm=location.pathname.match(/^\/u\/([a-z0-9_-]{3,24})\/?$/);
 const viewing=pm?{name:pm[1]}:null;
-const state=viewing?{manga:[],anime:[]}:normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
+// connecté sur cet appareil : on attend la bibliothèque du compte au lieu d'afficher les exemples
+const CFG0=window.MYWEEBRARY_CONFIG||{};
+let loadingAccount=!viewing&&!!(CFG0.supabaseUrl&&CFG0.supabaseKey)&&(()=>{try{for(let i=0;i<localStorage.length;i++)if(/^sb-.+-auth-token$/.test(localStorage.key(i)))return true}catch(e){}return false})();
+const state=viewing||loadingAccount?{manga:[],anime:[]}:normalize(load()||JSON.parse(JSON.stringify(EXAMPLE)));
 const fixOwned=s=>{if(tab==='manga')s.owned=Math.max(clamp(+s.owned||0,0,3000),s.done)};
 let tab='manga', sortBy='titre';
 
@@ -107,7 +110,7 @@ const TYPE={
 const ROWS=4, ROW_H=2.18, PLANK=.08;
 
 /* ---------- éclairage LED (sous chaque planche) + numéros peints par le shader ---------- */
-const LED={uLed:{value:new THREE.Color(.95,1.02,1.15)},uRowH:{value:ROW_H},uBase:{value:PLANK},uTopY:{value:9}};
+const LED={uLed:{value:new THREE.Color(.95,1.02,1.15)},uRowH:{value:ROW_H},uBase:{value:PLANK},uTopY:{value:9},uRowOn:{value:new THREE.Vector4(1,1,1,1)}};
 const LED_V=`#include <begin_vertex>
 {vec4 lw=vec4(transformed,1.0);
 #ifdef USE_INSTANCING
@@ -117,6 +120,7 @@ lw=modelMatrix*lw;vLedY=lw.y;vLedN=normalize(mat3(modelMatrix)*objectNormal);}`;
 const LED_F=`#include <emissivemap_fragment>
 {float t=mod(vLedY-uBase,uRowH);float dist=max(uRowH-uBase-t,0.0);
 float g=exp(-dist*2.3)*0.9+0.035;if(vLedY>uTopY||vLedY<0.0)g=0.0;
+float rb=clamp(floor((vLedY-uBase)/uRowH),0.0,3.0);g*=rb>2.5?uRowOn.x:(rb>1.5?uRowOn.y:(rb>0.5?uRowOn.z:uRowOn.w));
 float f=clamp(dot(normalize(vLedN),normalize(vec3(0.0,0.6,1.0))),0.0,1.0)*0.8+0.2;
 totalEmissiveRadiance+=diffuseColor.rgb*uLed*g*f;}`;
 const NUM_F=`#include <map_fragment>
@@ -141,7 +145,7 @@ function mat(params,opt={}){
   if(!led&&!num)return m;
   m.onBeforeCompile=sh=>{
     let vh='',fh='';
-    if(led){Object.assign(sh.uniforms,LED);vh+='varying float vLedY;varying vec3 vLedN;\n';fh+='uniform vec3 uLed;uniform float uRowH;uniform float uBase;uniform float uTopY;varying float vLedY;varying vec3 vLedN;\n';
+    if(led){Object.assign(sh.uniforms,LED);vh+='varying float vLedY;varying vec3 vLedN;\n';fh+='uniform vec3 uLed;uniform vec4 uRowOn;uniform float uRowH;uniform float uBase;uniform float uTopY;varying float vLedY;varying vec3 vLedN;\n';
       sh.vertexShader=sh.vertexShader.replace('#include <begin_vertex>',LED_V);sh.fragmentShader=sh.fragmentShader.replace('#include <emissivemap_fragment>',LED_F)}
     if(num){sh.uniforms.uDigits={value:digits()};sh.uniforms.uDigitColor={value:num.color};sh.uniforms.uBox={value:num.box};
       vh+='attribute float aNum;varying float vNum;\n';fh+='uniform sampler2D uDigits;uniform vec3 uDigitColor;uniform vec4 uBox;varying float vNum;\n';
@@ -291,7 +295,7 @@ function disposeShelf(){
   const mats=new Set(),geos=new Set(),texs=new Set();
   shelf.traverse(o=>{if(o.isMesh){geos.add(o.geometry);(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>mats.add(m))}});
   geos.forEach(g=>{if(!Object.values(mergedGeo).includes(g)&&!Object.values(boxGeo).includes(g))g.dispose()});
-  mats.forEach(m=>{if(KEEP.has(m))return;if(m.map&&m.map!==feltTex&&m.map!==wallTex)texs.add(m.map);m.dispose()});
+  mats.forEach(m=>{if(KEEP.has(m))return;if(m.map&&m.map!==feltTex&&m.map!==wallTex&&m.map!==glowTex)texs.add(m.map);m.dispose()});
   texs.forEach(t=>t.dispose());
   scene.remove(shelf);shelf=new THREE.Group();scene.add(shelf);recs=[];inst=[];
 }
@@ -327,11 +331,13 @@ function build(keep){
       sideG=new THREE.BoxGeometry(MOD_SIDE,H,1.5),sideAluG=new THREE.BoxGeometry(.02,H,.02),
       baseG=new THREE.BoxGeometry(OW+.04,.16,1.56),backG=new THREE.BoxGeometry(IW,H,.05);
     BACK.map.repeat.set(IW/2,H/2);
+    // une lumière par planche, pour les allumer l'une après l'autre
+    rowLed=[];rowGlow=[];for(let r=0;r<ROWS;r++){rowLed.push(LEDM.clone());rowGlow.push(GLOW.clone())}
     for(let m=0;m<mods;m++){const x0=modX0(m),cx=x0+OW/2;
       add(baseG,CAB,cx,-.08,-.03,{cast:true});
       for(let r=0;r<=ROWS;r++){const y=r===ROWS?H-PLANK/2:baseY(r)-PLANK/2;
         add(plankG,CAB,cx,y,-.03,{cast:true});add(aluG,ALU,cx,y,.73);
-        if(r<ROWS){const yl=baseY(r)+ROW_H-PLANK-.014;add(ledG,LEDM,cx,yl,.62,{receive:false});add(glowG,GLOW,cx,yl-.35,.6,{receive:false,order:3})}}
+        if(r<ROWS){const yl=baseY(r)+ROW_H-PLANK-.014;add(ledG,rowLed[r],cx,yl,.62,{receive:false});add(glowG,rowGlow[r],cx,yl-.35,.6,{receive:false,order:3})}}
       [x0+MOD_SIDE/2,x0+OW-MOD_SIDE/2].forEach(xx=>{add(sideG,CAB,xx,H/2,-.03,{cast:true});add(sideAluG,ALU,xx,H/2,.74)});
       add(backG,BACK,cx,H/2,-.78);
     }
@@ -359,7 +365,7 @@ function build(keep){
       im.castShadow=true;im.receiveShadow=true;im.userData={rec,offset:0};shelf.add(im);inst.push(im);rec.mesh=im;
       recs.push(rec);
     }
-    fitCamera(keep);updateHeader();
+    fitCamera(keep);updateHeader();if(keep)endIntro();else startIntro();
     let restored=false;
     if(prevSel){const [sid,i]=prevSel.split(':');const rec=recs.find(r=>r.s.id===sid);
       if(rec){selectUnit(rec,clamp(+i,1,rec.count),false,true);restored=true}}
@@ -397,7 +403,7 @@ function coverWants(s,idx){return[tab==='manga'?volUrl(s,idx,512):null,s.al&&s.a
 function addCover(m){const u=m.userData;if(u.cover)return;invalidate();
   const r=coverTexture(u.rec.s,u.rec.pal,u.rec.tpl,u.idx);u.coverRank=r.rank;
   u.cover=mat({map:r.tex,roughness:tab==='anime'?.18:.4});
-  m.material=[u.cover,...m.material.slice(1)]}
+  m.material=[u.cover,...m.material.slice(1)];if(u.key===selKey&&!$('#panel').hidden)requestAnimationFrame(paintCover)}
 function removeCover(m){const u=m.userData;if(!u.cover)return;invalidate();m.material=[m.material[1],...m.material.slice(1)];u.cover.map.dispose();u.cover.dispose();u.cover=null}
 const deg=THREE.MathUtils.degToRad;
 function selectUnit(rec,idx,move,instant){
@@ -405,14 +411,17 @@ function selectUnit(rec,idx,move,instant){
   if(selKey&&selKey!==key){const o=proxies.get(selKey);if(o){o.userData.tp=0;removeCover(o)}}
   const m=getProxy(rec,idx);m.userData.tp=1;selKey=key;panelSid=rec.s.id;addCover(m);
   if(instant){m.userData.pull=1;m.userData.hover=0}
-  if(move){const T=TYPE[tab],narrow=innerWidth<=720,bh=T.h*1.25,bw=T.d*1.3;
+  if(move){morphFrom=screenRect(m);const T=TYPE[tab],narrow=innerWidth<=720,bh=T.h*1.25,bw=T.d*1.3;
     const needH=Math.max(bh/(narrow?.38:.6),bw/((narrow?.75:.45)*camera.aspect));
     cam.td=needH/(2*Math.tan(deg(camera.fov/2)))+1.4;const v=vis(cam.td);
     cam.tx=m.userData.base.x+(narrow?0:v.w*.18);cam.ty=m.userData.base.y+.2-(narrow?v.h*.2:0);clampCam()}
   renderPanel();mdCovers(rec.s);
 }
+function hidePanel(){const p=$('#panel');if(p.hidden)return;
+  if(reduce){p.hidden=true;return}
+  p.animate([{opacity:1,transform:'none'},{opacity:0,transform:innerWidth<=720?'translateY(30px)':'translateY(8px) scale(.98)'}],{duration:170,easing:'ease-in'}).onfinish=()=>{if(!panelSid)p.hidden=true}}
 function openPanel(s){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=s.id;renderPanel();mdCovers(s)}
-function closePanel(){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=null;$('#panel').hidden=true}
+function closePanel(){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=null;hidePanel()}
 function setHover(hit){invalidate();
   const key=hit?hit.rec.s.id+':'+hit.idx:null;if(key===hovKey)return;
   if(hovKey){const o=proxies.get(hovKey);if(o)o.userData.th=0}
@@ -496,63 +505,140 @@ function findSeries(id){return state[tab].find(s=>s.id===id)}
 const stLbl=k=>tab==='anime'?STATUS[k].a:STATUS[k].m;
 function opts(sel){return ORDER.map(k=>`<option value="${k}"${k===sel?' selected':''}>${stLbl(k)}</option>`).join('')}
 function scoreOpts(sel){let o=`<option value="0"${!sel?' selected':''}>—</option>`;for(let i=10;i>=1;i--)o+=`<option value="${i}"${i===sel?' selected':''}>${i}</option>`;return o}
+// --- petits effets de la fiche ---
+let morphFrom=null,ringPrev=new Map(),fixOpen=false;
+// position à l'écran d'un tome de l'étagère, d'où part la couverture
+function screenRect(m){const u=m.userData,T=TYPE[tab],r=canvas.getBoundingClientRect();
+  const pr=(x,y,z)=>{const v=new THREE.Vector3(x,y,z).project(camera);return[r.left+(v.x+1)/2*r.width,r.top+(1-v.y)/2*r.height]};
+  const [cx,top]=pr(u.base.x,u.base.y+T.h/2,u.base.z+T.d/2),[,bot]=pr(u.base.x,u.base.y-T.h/2,u.base.z+T.d/2);
+  const h=Math.max(8,bot-top);return{x:cx-h*.33,y:top,w:h*.66,h}}
+function paintCover(){
+  const c=$('#p-cover');if(!c)return;const x=c.getContext('2d');const m=selKey&&proxies.get(selKey);
+  let src=m&&m.userData.cover&&m.userData.cover.map.image,tmp=null;
+  if(!src){const s=findSeries(panelSid);if(!s)return;const st=styleFor(s);tmp=coverTexture(s,st.pal,st.tpl,1);src=tmp.tex.image}
+  x.clearRect(0,0,c.width,c.height);try{x.drawImage(src,0,0,c.width,c.height)}catch(e){}
+  if(tmp)tmp.tex.dispose();
+}
+function playMorph(p,wasHidden){
+  if(reduce)return;
+  if(wasHidden)p.animate([{opacity:0,transform:innerWidth<=720?'translateY(40px)':'translateY(10px) scale(.97)'},{opacity:1,transform:'none'}],{duration:340,easing:'cubic-bezier(.16,1,.3,1)'});
+  const c=$('#p-cover');if(!c||!morphFrom)return;const t=c.getBoundingClientRect(),f=morphFrom;morphFrom=null;if(!t.width)return;
+  c.animate([{transform:`translate(${f.x-t.left}px,${f.y-t.top}px) scale(${f.w/t.width},${f.h/t.height})`,opacity:.35,filter:'brightness(1.6)'},
+    {opacity:1,offset:.45},{transform:'none',opacity:1,filter:'none'}],{duration:620,easing:'cubic-bezier(.16,1,.3,1)'});
+}
+// gerbe de particules quand une série est terminée
+function burst(el){
+  if(reduce||!el)return;const r=el.getBoundingClientRect(),cv=document.createElement('canvas');
+  cv.className='burst';cv.width=innerWidth*devicePixelRatio;cv.height=innerHeight*devicePixelRatio;document.body.appendChild(cv);
+  const x=cv.getContext('2d');x.scale(devicePixelRatio,devicePixelRatio);
+  const cols=['#f0c450','#3f9d6e','#3d7fd6','#e8eaf2','#d16a9b'],ox=r.left+r.width/2,oy=r.top+r.height/2;
+  const ps=Array.from({length:70},(_,i)=>{const a=Math.random()*Math.PI*2,v=2+Math.random()*6;return{x:ox,y:oy,vx:Math.cos(a)*v,vy:Math.sin(a)*v-2.5,s:2+Math.random()*3.5,c:cols[i%cols.length],r:Math.random()*6}});
+  const t0=performance.now();
+  (function step(t){const k=(t-t0)/1100;x.clearRect(0,0,innerWidth,innerHeight);
+    for(const p of ps){p.vy+=.16;p.vx*=.985;p.x+=p.vx;p.y+=p.vy;p.r+=.2;x.globalAlpha=Math.max(0,1-k);x.fillStyle=p.c;
+      x.save();x.translate(p.x,p.y);x.rotate(p.r);x.fillRect(-p.s/2,-p.s/2,p.s,p.s*1.6);x.restore()}
+    if(k<1)requestAnimationFrame(step);else cv.remove()})(t0);
+}
+function boing(b){if(!b||reduce)return;b.classList.remove('boing');void b.offsetWidth;b.classList.add('boing')}
+// anneau de progression : lus (couleur du statut) sur possédés (gris) sur parus
+function ring(s,man){
+  const owned=man?Math.max(s.owned||0,s.done):s.done,base=s.total>0?Math.max(s.total,owned):Math.max(owned,s.done,1);
+  const C=2*Math.PI*42,prev=ringPrev.get(s.id)||{d:0,o:0},fr=v=>C*(1-Math.min(1,v/base));
+  ringPrev.set(s.id,{d:s.done,o:owned});
+  return{html:`<svg class="ring" viewBox="0 0 100 100" role="img" aria-label="${s.done} ${man?'tomes lus':'épisodes vus'}${s.total?` sur ${s.total}`:''}">
+    <circle cx="50" cy="50" r="42" class="r-bg${s.total?'':' open'}"/>
+    ${man?`<circle cx="50" cy="50" r="42" class="r-own" stroke-dasharray="${C}" stroke-dashoffset="${fr(prev.o)}" data-to="${fr(owned)}"/>`:''}
+    <circle cx="50" cy="50" r="42" class="r-read" style="stroke:${STATUS[s.status].c}" stroke-dasharray="${C}" stroke-dashoffset="${fr(prev.d)}" data-to="${fr(s.done)}"/>
+    <text x="50" y="52" class="r-num">${s.done}</text><text x="50" y="67" class="r-sub">${s.total?`sur ${s.total}`:man?'lus':'vus'}</text></svg>`,owned};
+}
 function renderPanel(){
   const p=$('#panel');const s=panelSid&&findSeries(panelSid);if(!s){p.hidden=true;return}
+  const wasHidden=p.hidden;
   const m=selKey&&proxies.get(selKey),idx=m?m.userData.idx:null,rec=recs.find(r=>r.s.id===s.id);
-  const T=TYPE[tab],man=tab==='manga',unitLbl=man?'Tomes':'Épisodes';
+  const man=tab==='manga',ro=!!viewing;
   const kind=idx?(man?`Tome ${idx}${idx>s.done?' · pas encore lu':''}`:`Coffret ${idx} · ép. ${(idx-1)*EPS+1}–${Math.min(idx*EPS,s.done)}`):(s.done?'Série':(man?"Aucun tome sur l'étagère":'Aucun épisode vu'));
-  const pct=s.total>0?Math.round(Math.min(1,s.done/s.total)*100):null;
-  const full=s.total>0&&s.done>=s.total,owned=man?Math.max(s.owned||0,s.done):0,missing=man&&s.total>owned?s.total-owned:0;
-  const shop=missing?`<p class="note shop">À acheter : ${missing>1?`tomes ${owned+1} à ${s.total}`:`tome ${s.total}`} (${missing} tome${missing>1?'s':''})</p>`:'';
+  const rg=ring(s,man),owned=rg.owned,missing=man&&s.total>owned?s.total-owned:0;
+  const full=s.total>0&&s.done>=s.total,canBuy=man&&!(s.total&&owned>=s.total);
   let src='';
   if(man&&s.done){src=s.md?(idx&&!volUrl(s,idx,256)?"Pas de couverture pour ce tome sur MangaDex : celle de la série est affichée.":'Couvertures des tomes : MangaDex'):
     mdBusy.has(s.id)?'Recherche des couvertures des tomes…':s.mdMiss?'Couvertures des tomes introuvables sur MangaDex : celle de la série est affichée.':''}
-  const strip=man&&s.md&&s.done?`<div class="vols" id="p-vols">${Array.from({length:Math.min(s.done,400)},(_,i)=>{const n=i+1,u=volUrl(s,n,256);
-    return `<button type="button" class="vol${n===idx?' cur':''}" data-n="${n}" aria-label="Tome ${n}">${u?`<img alt="" loading="lazy" src="${viaProxy(u)}">`:''}<span>${n}</span></button>`}).join('')}</div>`:'';
+  const fan=man&&s.md&&s.done>1?`<div class="fan" id="p-fan">${Array.from({length:Math.min(Math.max(owned,s.done),400)},(_,i)=>{const n=i+1,u=volUrl(s,n,256);
+    return `<button type="button" class="vol${n===idx?' cur':''}${n>s.done?' unread':''}" data-n="${n}" aria-label="Tome ${n}">${u?`<img alt="" loading="lazy" src="${viaProxy(u)}">`:''}<span>${n}</span></button>`}).join('')}</div>`:'';
+  const legend=man?`<li><i class="k-read" style="background:${STATUS[s.status].c}"></i><b>${s.done}</b> lu${s.done>1?'s':''}</li>
+      <li><i class="k-own"></i><b>${owned}</b> possédé${owned>1?'s':''}</li>
+      <li><i class="k-tot"></i>${s.total?`<b>${s.total}</b> parus`:'parution en cours'}</li>
+      ${missing?`<li class="shop">${missing>1?`Tomes ${owned+1} à ${s.total} à acheter`:`Tome ${s.total} à acheter`}</li>`:''}`
+    :`<li><i class="k-read" style="background:${STATUS[s.status].c}"></i><b>${s.done}</b> épisode${s.done>1?'s':''} vu${s.done>1?'s':''}</li><li><i class="k-tot"></i>${s.total?`<b>${s.total}</b> au total`:'diffusion en cours'}</li>`;
+  const scoreTxt=v=>v?`${v}/10`:'Pas noté';
   p.innerHTML=`
     <div class="p-top"><span class="p-kind">${kind}</span><button class="x" id="p-close" aria-label="Fermer">×</button></div>
-    <h2 class="p-title">${esc(s.title)}</h2>
-    <div class="pills"><span class="pill" style="background:${STATUS[s.status].c}">${stLbl(s.status)}</span>
-      ${s.score?`<span class="pill" style="background:var(--ink);color:var(--surface)">${s.score}/10</span>`:''}
-      ${s.example?'<span class="pill ex">Exemple</span>':''}${s.estimated?'<span class="pill ex">Tomes estimés</span>':''}</div>
-    <div class="prog"><div class="prog-bar"><span style="width:${pct??100}%;${pct===null?'opacity:.35':''}"></span></div>
-      <small>${s.done} ${unitLbl.toLowerCase()} ${T.verb}${man&&owned>s.done?` · ${owned} possédés`:''}${s.total?` sur ${s.total}`:' · série en cours de parution'}</small></div>
-    ${shop}
-    ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''}>‹ Précédent</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''}>Suivant ›</button></div>`:''}
-    ${strip}
-    ${src?`<p class="note">${src}</p>`:''}
-    ${viewing?'':`<div class="grid2">
-      <label class="f">Statut<select id="p-status">${opts(s.status)}</select></label>
-      <label class="f">Note /10<select id="p-score">${scoreOpts(s.score)}</select></label>
-      <label class="f">${unitLbl} ${T.verb}<input id="p-done" type="number" min="0" max="3000" value="${s.done}"></label>
-      ${man?`<label class="f">Tomes possédés<input id="p-owned" type="number" min="0" max="3000" value="${owned}"></label>`:''}
-      <label class="f">${unitLbl} ${man?'parus':'au total'}<input id="p-total" type="number" min="0" max="3000" value="${s.total||''}" placeholder="${man?'en cours':'?'}"></label>
+    <div class="p-hero">
+      <canvas id="p-cover" class="p-cover" width="384" height="576" aria-hidden="true"></canvas>
+      <div class="p-head">
+        <h2 class="p-title">${esc(s.title)}</h2>
+        <div class="pills">${ro?`<span class="pill" style="background:${STATUS[s.status].c}">${stLbl(s.status)}</span>${s.score?`<span class="pill" style="background:var(--ink);color:var(--surface)">${s.score}/10</span>`:''}`:''}
+          ${s.example?'<span class="pill ex">Exemple</span>':''}${s.estimated?'<span class="pill ex">Tomes estimés</span>':''}</div>
+        ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''} aria-label="${man?'Tome':'Coffret'} précédent">‹</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''} aria-label="${man?'Tome':'Coffret'} suivant">›</button></div>`:''}
+      </div>
     </div>
-    <div class="row">
-      ${full?'':`<button class="btn primary" id="p-plus">${man?`J'ai lu le tome ${s.done+1}`:`J'ai vu l'épisode ${s.done+1}`}</button>`}
-      ${man&&!(s.total&&owned>=s.total)?`<button class="btn" id="p-buy">J'ai acheté le tome ${owned+1}</button>`:''}
-      <button class="btn danger" id="p-del">Retirer</button>
-    </div>`}
-    ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}
-    <div id="p-confirm"></div>`;
+    <div class="p-prog">${rg.html}<ul class="legend-l">${legend}</ul></div>
+    ${ro?'':`<div class="p-acts">
+      ${full?'':`<button class="btn primary jelly" id="p-plus">+1 ${man?'lu':'épisode'}<small>${man?`tome ${s.done+1}`:`épisode ${s.done+1}`}</small></button>`}
+      ${canBuy?`<button class="btn jelly" id="p-buy">+1 acheté<small>tome ${owned+1}</small></button>`:''}
+    </div>
+    <div class="seg" id="p-seg" role="radiogroup" aria-label="Statut"><span class="seg-ind" aria-hidden="true"></span>
+      ${ORDER.map(k=>`<button type="button" role="radio" aria-checked="${k===s.status}" data-k="${k}" style="--c:${STATUS[k].c}">${stLbl(k)}</button>`).join('')}</div>
+    <label class="score"><span>Note</span><input type="range" id="p-score" min="0" max="10" step="1" value="${s.score}" style="--p:${s.score*10}%" aria-valuetext="${scoreTxt(s.score)}"><output id="p-score-o">${scoreTxt(s.score)}</output></label>`}
+    ${fan}
+    <p class="note" id="p-src"${src?'':' hidden'}>${src}</p>
+    ${ro?'':`<details class="fix" id="p-fix"${fixOpen?' open':''}><summary>Corriger les nombres ou retirer la série</summary>
+      <div class="grid2">
+        <label class="f">${man?'Tomes lus':'Épisodes vus'}<input id="p-done" type="number" min="0" max="3000" value="${s.done}"></label>
+        ${man?`<label class="f">Tomes possédés<input id="p-owned" type="number" min="0" max="3000" value="${owned}"></label>`:''}
+        <label class="f">${man?'Tomes parus':'Épisodes au total'}<input id="p-total" type="number" min="0" max="3000" value="${s.total||''}" placeholder="${man?'en cours':'?'}"></label>
+      </div>
+      <button class="btn danger" id="p-del">Retirer de ma bibliothèque</button>
+      <div id="p-confirm"></div>
+    </details>`}
+    ${s.al&&s.al.id?`<a class="note" href="https://anilist.co/${tab}/${s.al.id}" target="_blank" rel="noopener">Voir la fiche sur AniList</a>`:''}`;
   p.hidden=false;
+  paintCover();playMorph(p,wasHidden);
+  // l'anneau part de l'ancienne valeur
+  requestAnimationFrame(()=>p.querySelectorAll('.ring [data-to]').forEach(c=>c.setAttribute('stroke-dashoffset',c.dataset.to)));
   $('#p-close').onclick=closePanel;
   const el=id=>$(id)||{};
-  // après un changement, on reconstruit ; « last » sort le dernier tome rangé
-  const upd=(fn,pick)=>{fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;fixOwned(s);save();build(true);
-    if(pick){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,clamp(typeof pick==='function'?pick(s):r.count,1,r.count),true,false);else{panelSid=s.id;renderPanel()}}};
-  el('#p-status').onchange=e=>upd(s=>s.status=e.target.value);
-  el('#p-score').onchange=e=>upd(s=>s.score=+e.target.value);
+  // après un changement, on reconstruit ; « pick » choisit le tome à sortir
+  const upd=(fn,pick)=>{const was=s.status;fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;fixOwned(s);save();build(true);
+    if(pick){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,clamp(typeof pick==='function'?pick(s):r.count,1,r.count),true,false);else{panelSid=s.id;renderPanel()}}
+    if(was!=='termine'&&s.status==='termine'){burst($('#panel .ring'));toast(`« ${s.title} » terminé, bravo !`)}};
+  const later=(b,fn)=>{boing(b);setTimeout(fn,reduce?0:200)};
+  const plus=$('#p-plus');if(plus)plus.onclick=()=>later(plus,()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},s=>s.done));
+  const pb=$('#p-buy');if(pb)pb.onclick=()=>later(pb,()=>upd(s=>s.owned=Math.min(3000,Math.max(s.owned||0,s.done)+1),s=>Math.max(s.owned||0,s.done)));
+  // statut : l'indicateur glisse jusqu'à la pastille choisie, puis on enregistre
+  const seg=$('#p-seg');
+  if(seg){const ind=seg.querySelector('.seg-ind');
+    const place=b=>{ind.style.left=b.offsetLeft+'px';ind.style.top=b.offsetTop+'px';ind.style.width=b.offsetWidth+'px';ind.style.height=b.offsetHeight+'px';ind.style.background=b.style.getPropertyValue('--c')};
+    const cur=seg.querySelector('[aria-checked="true"]');ind.style.transition='none';if(cur)place(cur);void ind.offsetWidth;ind.style.transition='';
+    seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(b.dataset.k===s.status)return;seg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-checked',x===b));place(b);
+      setTimeout(()=>upd(s=>s.status=b.dataset.k),reduce?0:260)})}
+  const sc=$('#p-score');
+  if(sc){sc.oninput=()=>{const v=+sc.value;sc.style.setProperty('--p',v*10+'%');$('#p-score-o').textContent=scoreTxt(v);sc.setAttribute('aria-valuetext',scoreTxt(v))};
+    sc.onchange=()=>upd(s=>s.score=+sc.value)}
+  const fx=$('#p-fix');if(fx)fx.ontoggle=()=>{fixOpen=fx.open};
   el('#p-done').onchange=e=>upd(s=>{s.done=clamp(+e.target.value||0,0,3000);s.estimated=false},s=>s.done);
   const po=$('#p-owned');if(po)po.onchange=e=>{const v=clamp(+e.target.value||0,0,3000);if(v<s.done)toast(`Tu as lu ${s.done} tomes : ils restent sur l'étagère.`);upd(s=>s.owned=v,true)};
-  const pb=$('#p-buy');if(pb)pb.onclick=()=>upd(s=>s.owned=Math.min(3000,Math.max(s.owned||0,s.done)+1),true);
   el('#p-total').onchange=e=>upd(s=>s.total=clamp(+e.target.value||0,0,3000));
-  const plus=$('#p-plus');if(plus)plus.onclick=()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},s=>s.done);
   const pv=$('#p-prev'),nx=$('#p-next');
   if(pv)pv.onclick=()=>selectUnit(rec,idx-1,true,false);if(nx)nx.onclick=()=>selectUnit(rec,idx+1,true,false);
-  const vols=$('#p-vols');
-  if(vols){vols.querySelectorAll('.vol').forEach(b=>b.onclick=()=>{if(rec)selectUnit(rec,Math.min(+b.dataset.n,rec.count),true,false)});
-    const c=vols.querySelector('.cur');if(c)vols.scrollLeft=c.offsetLeft-vols.clientWidth/2+c.offsetWidth/2}
+  // éventail : les tomes pivotent selon leur distance au centre
+  const f=$('#p-fan');
+  if(f){const items=[...f.querySelectorAll('.vol')];let q=0;
+    const lay=()=>{q=0;const mid=f.scrollLeft+f.clientWidth/2,half=f.clientWidth/2||1;
+      for(const b of items){const d=(b.offsetLeft+b.offsetWidth/2-mid)/half;if(Math.abs(d)>1.6){b.style.transform='';continue}const a=Math.min(1,Math.abs(d));
+        b.style.transform=`perspective(420px) rotateY(${clamp(-d*42,-55,55)}deg) scale(${1-a*.2})`;b.style.zIndex=String(200-Math.round(a*100));b.style.opacity=String(1-a*.45)}};
+    f.addEventListener('scroll',()=>{if(!q)q=requestAnimationFrame(lay)},{passive:true});
+    items.forEach(b=>b.onclick=()=>{if(rec)selectUnit(rec,Math.min(+b.dataset.n,rec.count),true,false)});
+    const c=f.querySelector('.cur');if(c)f.scrollLeft=c.offsetLeft-f.clientWidth/2+c.offsetWidth/2;lay()}
   el('#p-del').onclick=()=>{$('#p-confirm').innerHTML=`<div class="confirm"><span>Retirer « ${esc(s.title)} » de ta bibliothèque ?</span><div class="row"><button class="btn danger" id="p-del-ok">Retirer</button><button class="btn" id="p-del-no">Garder</button></div></div>`;
     $('#p-del-no').onclick=()=>$('#p-confirm').innerHTML='';
     $('#p-del-ok').onclick=()=>{state[tab]=state[tab].filter(x=>x.id!==s.id);save();closePanel();build(true);toast(`« ${s.title} » retiré`)}};
@@ -608,6 +694,7 @@ function updateBanner(){
     else if(viewing.profile)h=`<span>Bibliothèque de <b>@${esc(viewing.profile.username)}</b>${own?' : ta page publique':''}.</span> <a href="/">${own?'Modifier ma bibliothèque':'Créer la mienne'}</a>`;
     else h=`<span>Chargement de la bibliothèque de <b>@${esc(viewing.name)}</b>…</span>`;
   }
+  else if(loadingAccount)h='<span>Chargement de ta bibliothèque…</span>';
   else if(l.some(s=>s.example))h=`<span>Étagère d'exemple.</span> <button data-act="import">Importer ta liste MyAnimeList</button><span class="long">pour la remplacer par la tienne.</span>`;
   else if(!l.length)h=`<span>${tab==='manga'?'Aucun manga':'Aucun anime'} pour l'instant.</span> <button data-act="import">Importer ta liste MyAnimeList</button> <span>ou</span> <button data-act="add">ajouter une série</button>`;
   else if(sb&&!acct.user)h=`<span>Ta bibliothèque est enregistrée dans ce navigateur seulement.</span> <button data-act="login">Crée un compte</button><span class="long">pour la retrouver partout et la partager.</span>`;
@@ -818,7 +905,7 @@ function mdGet(params){
 }
 async function mdCovers(s){
   if(tab!=='manga'||!s||s.md||s.mdMiss||mdBusy.has(s.id)||!location.protocol.startsWith('http'))return;
-  mdBusy.add(s.id);const kind=tab;if(panelSid===s.id)renderPanel();
+  mdBusy.add(s.id);const kind=tab;{const n=$('#p-src');if(n&&panelSid===s.id){n.hidden=false;n.textContent='Recherche des couvertures des tomes…'}}
   try{
     const q=new URLSearchParams({path:'manga',title:(s.al&&s.al.romaji)||s.q||s.title,limit:'10'});
     ['safe','suggestive','erotica'].forEach(c=>q.append('contentRating[]',c));
@@ -847,7 +934,8 @@ async function mdCovers(s){
 }
 function afterMd(s){
   for(const m of proxies.values())if(m.userData.rec.s.id===s.id&&m.userData.cover){removeCover(m);addCover(m)}
-  if(panelSid===s.id)renderPanel();
+  // on laisse finir l'envol de la couverture avant de redessiner la fiche
+  if(panelSid===s.id)setTimeout(()=>{if(panelSid===s.id)renderPanel()},reduce?0:700);
 }
 
 /* ---------- comptes et pages publiques (Supabase) ---------- */
@@ -896,15 +984,15 @@ async function loadAccount(user){
     const remote=await fetchSeries(user.id);synced.clear();
     for(const k of ['manga','anime'])for(const s of remote[k])synced.set(k+':'+s.id,JSON.stringify(toRow(s,k)));
     // séries de ce navigateur pas encore dans le compte
-    let added=0;
+    let added=0;const localLib=normalize(load()||{});
     for(const k of ['manga','anime']){const have=new Set(remote[k].map(s=>s.title.toLowerCase()));
-      for(const s of state[k])if(!s.example&&!have.has(s.title.toLowerCase())){remote[k].push(s);have.add(s.title.toLowerCase());added++}}
-    closePanel();setLibrary(remote);
+      for(const s of localLib[k])if(!s.example&&!have.has(s.title.toLowerCase())){remote[k].push(s);have.add(s.title.toLowerCase());added++}}
+    closePanel();loadingAccount=false;setLibrary(remote);
     build(false);recs.forEach(r=>{if(r.s.al&&r.s.al.cover)coverImg(r.s.al.cover)});
     if(added){toast(`${added} série${added>1?'s':''} de ce navigateur ajoutée${added>1?'s':''} à ton compte.`);sync()}
     enrich();
     if(!acct.profile)openModal('#ov-user');
-  }catch(e){console.warn(e);toast("Ton compte n'a pas pu être chargé. Recharge la page pour réessayer.")}
+  }catch(e){console.warn(e);fallbackLocal();toast("Ton compte n'a pas pu être chargé. Recharge la page pour réessayer.")}
 }
 function scheduleSync(){if(!sb||!acct.user||viewing)return;clearTimeout(syncTimer);syncTimer=setTimeout(sync,1200)}
 async function sync(){
@@ -970,18 +1058,49 @@ $('#ac-public').onchange=async e=>{const v=e.target.checked;
 $('#ac-logout').onclick=async()=>{await sync();await sb.auth.signOut();location.href='/'};
 $('#ac-close').onclick=()=>closeModal('#ov-account');
 
+function fallbackLocal(){if(!loadingAccount)return;loadingAccount=false;setLibrary(normalize(load()||JSON.parse(JSON.stringify(EXAMPLE))));build(false);enrich()}
 async function initAccounts(){
-  updateAccountBtn();if(!sb)return;
+  updateAccountBtn();if(!sb){fallbackLocal();return}
   const {data}=await sb.auth.getSession();const session=data&&data.session;
   if(viewing){
     if(session){acct.user=session.user;updateAccountBtn();
       sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle().then(({data})=>{acct.profile=data||null;updateAccountBtn();updateBanner()})}
     await loadPublic(viewing.name);return}
-  if(session)await loadAccount(session.user);else updateBanner();
+  if(session)await loadAccount(session.user);else{fallbackLocal();updateBanner()}
   sb.auth.onAuthStateChange((ev,session)=>{
     if(ev==='SIGNED_IN'&&session&&(!acct.user||acct.user.id!==session.user.id)){closeModal('#ov-login');loadAccount(session.user)}
     if(ev==='SIGNED_OUT'&&acct.user){acct.user=null;acct.profile=null;location.href='/'}
   });
+}
+
+/* ---------- ouverture : les LED s'allument, les tomes se rangent ---------- */
+let intro=null,lightsShown=false,rowLed=[],rowGlow=[];
+const BASE_LED=new THREE.Color(4,4.3,4.8),easeOut=t=>1-Math.pow(1-t,3),TMP={x:0,y:0,z:0,rz:0};
+// scintillement d'un néon qui démarre
+function flick(t){if(t<=0)return 0;if(t<50)return 1;if(t<100)return .12;if(t<150)return .85;if(t<190)return .25;if(t<330)return .25+(t-190)/140*.75;return 1}
+function setRow(r,v){LED.uRowOn.value.setComponent(r,v);if(rowLed[r])rowLed[r].color.copy(BASE_LED).multiplyScalar(Math.max(v,.03));if(rowGlow[r])rowGlow[r].opacity=v}
+function startIntro(){
+  if(reduce){endIntro();return}
+  const lights=!lightsShown;lightsShown=true;const T=TYPE[tab],list=[];let end=0;
+  for(const rec of recs)rec.pos.forEach((p,i)=>{const row=clamp(ROWS-1-Math.round((p.y-T.h/2-PLANK)/ROW_H),0,ROWS-1),mod=p.mod||0;
+    const d=(lights?380+row*260:row*150)+((p.x-modX0(mod))/layout.OW)*420+Math.min(mod,3)*160;if(d>end)end=d;
+    list.push({rec,i,p,d,done:false});rec.mesh.setMatrixAt(i,placeMatrix(p,true));rec.mesh.instanceMatrix.needsUpdate=true});
+  intro={t0:performance.now(),lights,list,end:end+700};
+  for(let r=0;r<ROWS;r++)setRow(r,lights?0:1);invalidate();
+}
+function stepIntro(now){
+  const t=now-intro.t0,touched=new Set();
+  if(intro.lights)for(let r=0;r<ROWS;r++)setRow(r,flick(t-120-r*260));
+  for(const x of intro.list){if(x.done)continue;const e=(t-x.d)/620;if(e<=0)continue;
+    if(proxies.has(x.rec.s.id+':'+(x.i+1))){x.done=true;continue}
+    const k=easeOut(Math.min(1,e));TMP.x=x.p.x;TMP.y=x.p.y+(1-k)*.45;TMP.z=x.p.z+(1-k)*1.1;TMP.rz=x.p.rz+(1-k)*.22;
+    x.rec.mesh.setMatrixAt(x.i,placeMatrix(TMP,false));touched.add(x.rec.mesh);if(e>=1)x.done=true}
+  touched.forEach(m=>m.instanceMatrix.needsUpdate=true);
+  return t<intro.end;
+}
+function endIntro(){
+  if(intro){for(const x of intro.list)if(!x.done&&!proxies.has(x.rec.s.id+':'+(x.i+1))){x.rec.mesh.setMatrixAt(x.i,placeMatrix(x.p,false));x.rec.mesh.instanceMatrix.needsUpdate=true}intro=null}
+  for(let r=0;r<ROWS;r++)setRow(r,1);invalidate();
 }
 
 /* ---------- boucle ---------- */
@@ -1006,6 +1125,7 @@ function frame(){
     if(u.tp===0&&u.th===0&&u.pull===0&&u.hover===0){releaseProxy(m);continue}
     m.position.set(u.base.x,u.base.y+u.pull*.28,u.base.z+u.hover*.16+u.pull*1.4);
     m.rotation.set(0,-u.pull*(Math.PI/2-.3),u.base.rz*(1-u.pull));m.scale.setScalar(1+u.pull*.18)}
+  if(intro){if(stepIntro(performance.now()))moving=true;else endIntro()}
   updModLabel();
   renderer.render(scene,camera);
   if(moving)invalidate();
