@@ -465,7 +465,7 @@ function selectUnit(rec,idx,move,instant){
 }
 function hidePanel(){const p=$('#panel');if(p.hidden)return;
   if(reduce){p.hidden=true;return}
-  p.animate([{opacity:1,transform:'none'},{opacity:0,transform:innerWidth<=720?'translateY(30px)':'translateY(8px) scale(.98)'}],{duration:170,easing:'ease-in'}).onfinish=()=>{if(!panelSid)p.hidden=true}}
+  p.animate([{opacity:1,transform:'none'},{opacity:0,transform:innerWidth<=720?'translateY(30px)':'translateY(8px) scale(.98)'}],{duration:160,easing:'cubic-bezier(.22,1,.36,1)'}).onfinish=()=>{if(!panelSid)p.hidden=true}}
 function openPanel(s){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=s.id;renderPanel();mdCovers(s)}
 function closePanel(){invalidate();if(selKey){const m=proxies.get(selKey);if(m){m.userData.tp=0;removeCover(m)}}selKey=null;panelSid=null;hidePanel()}
 function setHover(hit){invalidate();
@@ -567,25 +567,11 @@ function paintCover(){
 }
 function playMorph(p,wasHidden){
   if(reduce)return;
-  if(wasHidden)p.animate([{opacity:0,transform:innerWidth<=720?'translateY(40px)':'translateY(10px) scale(.97)'},{opacity:1,transform:'none'}],{duration:340,easing:'cubic-bezier(.16,1,.3,1)'});
+  if(wasHidden)p.animate([{opacity:0,transform:innerWidth<=720?'translateY(40px)':'translateY(10px) scale(.97)'},{opacity:1,transform:'none'}],{duration:320,easing:'cubic-bezier(.22,1,.36,1)'});
   const c=$('#p-cover');if(!c||!morphFrom)return;const t=c.getBoundingClientRect(),f=morphFrom;morphFrom=null;if(!t.width)return;
   c.animate([{transform:`translate(${f.x-t.left}px,${f.y-t.top}px) scale(${f.w/t.width},${f.h/t.height})`,opacity:.35,filter:'brightness(1.6)'},
-    {opacity:1,offset:.45},{transform:'none',opacity:1,filter:'none'}],{duration:620,easing:'cubic-bezier(.16,1,.3,1)'});
+    {opacity:1,offset:.45},{transform:'none',opacity:1,filter:'none'}],{duration:480,easing:'cubic-bezier(.22,1,.36,1)'});
 }
-// gerbe de particules quand une série est terminée
-function burst(el){
-  if(reduce||!el)return;const r=el.getBoundingClientRect(),cv=document.createElement('canvas');
-  cv.className='burst';cv.width=innerWidth*devicePixelRatio;cv.height=innerHeight*devicePixelRatio;document.body.appendChild(cv);
-  const x=cv.getContext('2d');x.scale(devicePixelRatio,devicePixelRatio);
-  const cols=['#f0c450','#3f9d6e','#3d7fd6','#e8eaf2','#d16a9b'],ox=r.left+r.width/2,oy=r.top+r.height/2;
-  const ps=Array.from({length:70},(_,i)=>{const a=Math.random()*Math.PI*2,v=2+Math.random()*6;return{x:ox,y:oy,vx:Math.cos(a)*v,vy:Math.sin(a)*v-2.5,s:2+Math.random()*3.5,c:cols[i%cols.length],r:Math.random()*6}});
-  const t0=performance.now();
-  (function step(t){const k=(t-t0)/1100;x.clearRect(0,0,innerWidth,innerHeight);
-    for(const p of ps){p.vy+=.16;p.vx*=.985;p.x+=p.vx;p.y+=p.vy;p.r+=.2;x.globalAlpha=Math.max(0,1-k);x.fillStyle=p.c;
-      x.save();x.translate(p.x,p.y);x.rotate(p.r);x.fillRect(-p.s/2,-p.s/2,p.s,p.s*1.6);x.restore()}
-    if(k<1)requestAnimationFrame(step);else cv.remove()})(t0);
-}
-function boing(b){if(!b||reduce)return;b.classList.remove('boing');void b.offsetWidth;b.classList.add('boing')}
 // anneau de progression : lus (couleur du statut) sur possédés (gris) sur parus
 function ring(s,man){
   const owned=man?Math.max(s.owned||0,s.done):s.done,base=s.total>0?Math.max(s.total,owned):Math.max(owned,s.done,1);
@@ -618,7 +604,7 @@ function renderPanel(){
   const scoreTxt=v=>v?`${v}/10`:'Pas noté';
   if(game)src=s.igdb&&s.igdb.cover?'Jaquette : IGDB':s.steam?'Jaquette : Steam':'';
   const pf=GAME_PF[s.platform]||GAME_PF.other;
-  const gInfoHtml=game?`<div class="g-info"><span class="chip" style="background:${pf.band}">${pf.label}</span>${s.igdb&&s.igdb.year?`<span>Sorti en <b>${s.igdb.year}</b></span>`:''}${s.hours?`<span><b>${s.hours.toLocaleString('fr-FR')}</b> h de jeu</span>`:''}</div>`:'';
+  const gInfoHtml=game?`<div class="g-info"><span class="chip"><i class="dot" style="background:${pf.band}"></i>${pf.label}</span>${s.igdb&&s.igdb.year?`<span>Sorti en <b>${s.igdb.year}</b></span>`:''}${s.hours?`<span><b>${s.hours.toLocaleString('fr-FR')}</b> h de jeu</span>`:''}</div>`:'';
   const pfSeg=game?`<div class="pfs" id="p-pf" role="radiogroup" aria-label="Plateforme">${['switch','ps','xbox','pc','other'].map(k=>`<button type="button" role="radio" aria-checked="${k===s.platform}" data-k="${k}" style="--c:${GAME_PF[k].band}">${GAME_PF[k].label}</button>`).join('')}</div>`:'';
   p.innerHTML=`
     <div class="p-top"><span class="p-kind">${kind}</span><button class="x" id="p-close" aria-label="Fermer">×</button></div>
@@ -626,7 +612,7 @@ function renderPanel(){
       <canvas id="p-cover" class="p-cover" width="384" height="576" aria-hidden="true"></canvas>
       <div class="p-head">
         <h2 class="p-title">${esc(s.title)}</h2>
-        <div class="pills">${ro?`<span class="pill" style="background:${STATUS[s.status].c}">${stLbl(s.status)}</span>${s.score?`<span class="pill" style="background:var(--ink);color:var(--surface)">${s.score}/10</span>`:''}`:''}
+        <div class="pills">${ro?`<span class="pill"><i class="dot" style="background:${STATUS[s.status].c}"></i>${stLbl(s.status)}</span>${s.score?`<span class="pill mono">${s.score}/10</span>`:''}`:''}
           ${s.example?'<span class="pill ex">Exemple</span>':''}${s.estimated?'<span class="pill ex">Tomes estimés</span>':''}</div>
         ${idx&&rec&&rec.count>1?`<div class="row nav"><button class="btn" id="p-prev"${idx<=1?' disabled':''} aria-label="${man?'Tome':'Coffret'} précédent">‹</button><button class="btn" id="p-next"${idx>=rec.count?' disabled':''} aria-label="${man?'Tome':'Coffret'} suivant">›</button></div>`:''}
       </div>
@@ -663,17 +649,17 @@ function renderPanel(){
   const upd=(fn,pick)=>{const was=s.status;fn(s);s.example=false;if(s.status==='termine'&&s.total>0)s.done=s.total;fixOwned(s);save();build(true);
     if(pick){const r=recs.find(r=>r.s.id===s.id);if(r)selectUnit(r,clamp(typeof pick==='function'?pick(s):r.count,1,r.count),true,false);else{panelSid=s.id;renderPanel()}}
     const fin=k=>k==='termine'||k==='cent';
-    if(!fin(was)&&fin(s.status)||was!=='cent'&&s.status==='cent'){burst($('#panel .ring')||$('#p-cover'));toast(`« ${s.title} » ${s.status==='cent'?'à 100 %':'terminé'}, bravo !`)}};
-  const later=(b,fn)=>{boing(b);setTimeout(fn,reduce?0:200)};
+    if(!fin(was)&&fin(s.status)||was!=='cent'&&s.status==='cent')toast(`« ${s.title} » ${s.status==='cent'?'terminé à 100 %':'terminé'}`)};
+  const later=(b,fn)=>fn();
   const plus=$('#p-plus');if(plus)plus.onclick=()=>later(plus,()=>upd(s=>{s.done=Math.min(3000,s.done+1);s.estimated=false;if(s.status==='a_lire'||s.status==='abandonne')s.status='en_cours';if(s.total&&s.done>=s.total)s.status='termine'},s=>s.done));
   const pb=$('#p-buy');if(pb)pb.onclick=()=>later(pb,()=>upd(s=>s.owned=Math.min(3000,Math.max(s.owned||0,s.done)+1),s=>Math.max(s.owned||0,s.done)));
   // statut : l'indicateur glisse jusqu'à la pastille choisie, puis on enregistre
   const seg=$('#p-seg');
   if(seg){const ind=seg.querySelector('.seg-ind');
-    const place=b=>{ind.style.left=b.offsetLeft+'px';ind.style.top=b.offsetTop+'px';ind.style.width=b.offsetWidth+'px';ind.style.height=b.offsetHeight+'px';ind.style.background=b.style.getPropertyValue('--c')};
+    const place=b=>{ind.style.transform=`translate(${b.offsetLeft}px,${b.offsetTop}px)`;ind.style.width=b.offsetWidth+'px';ind.style.height=b.offsetHeight+'px'};
     const cur=seg.querySelector('[aria-checked="true"]');ind.style.transition='none';if(cur)place(cur);void ind.offsetWidth;ind.style.transition='';
     seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(b.dataset.k===s.status)return;seg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-checked',x===b));place(b);
-      setTimeout(()=>upd(s=>s.status=b.dataset.k),reduce?0:260)})}
+      setTimeout(()=>upd(s=>s.status=b.dataset.k),reduce?0:200)})}
   const sc=$('#p-score');
   if(sc){sc.oninput=()=>{const v=+sc.value;sc.style.setProperty('--p',v*10+'%');$('#p-score-o').textContent=scoreTxt(v);sc.setAttribute('aria-valuetext',scoreTxt(v))};
     sc.onchange=()=>upd(s=>s.score=+sc.value)}
