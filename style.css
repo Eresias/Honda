@@ -44,7 +44,7 @@ header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding-block
 .tabs button{border:0;background:none;padding:4px 16px;height:28px;border-radius:999px;cursor:pointer;font-size:14px;font-weight:500;color:var(--muted);transition:color .15s var(--ease),background-color .15s var(--ease)}
 .tabs button:hover{color:var(--ink)}
 .tabs button[aria-selected="true"]{background:var(--raised);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-strong)}
-.stats{font-family:var(--font-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.stats{font-family:var(--font-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stats b{color:var(--ink);font-weight:500}
 .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .btn{border:1px solid var(--line-strong);background:var(--surface);padding:0 12px;height:36px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;
@@ -172,7 +172,7 @@ label.f input,label.f select{border:1px solid var(--line-strong);background:var(
 .check span{display:flex;flex-direction:column;gap:4px}
 .check small{color:var(--muted);font-size:13px}
 .mono{font-family:var(--font-mono);word-break:break-all}
-@media (max-width:720px){.stats{width:auto;flex:1 1 0;min-width:0}.btn.account{order:3;margin-left:auto;padding:0 8px;height:32px;line-height:30px;font-size:13px;max-width:128px}}
+@media (max-width:720px){.stats{width:auto;flex:1 1 0;min-width:0;white-space:normal}.btn.account{order:3;margin-left:auto;padding:0 8px;height:32px;line-height:30px;font-size:13px;max-width:128px}}
 @media (min-width:721px) and (max-width:1400px){.brand span{display:none}}
 
 /* ---------- fiche : couverture, anneau, actions ---------- */
